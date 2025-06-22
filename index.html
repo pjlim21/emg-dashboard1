@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMG Test Analysis Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <i class="fas fa-heartbeat"></i>
+                <h2>EMG Dashboard</h2>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    Dashboard
+                </a>
+                <a href="#" class="nav-item" data-view="new-test">
+                    <i class="fas fa-plus-circle"></i>
+                    New Test
+                </a>
+                <a href="#" class="nav-item" data-view="comparison">
+                    <i class="fas fa-chart-line"></i>
+                    Compare Tests
+                </a>
+                <a href="#" class="nav-item" data-view="body-map">
+                    <i class="fas fa-user"></i>
+                    Body Map
+                </a>
+                <a href="#" class="nav-item" data-view="scripts">
+                    <i class="fas fa-code"></i>
+                    Python Scripts
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-content">
+                    <h1 id="page-title">Dashboard</h1>
+                    <div class="header-actions">
+                        <button class="btn btn--outline" id="theme-toggle">
+                            <i class="fas fa-moon"></i>
+                        </button>
+                        <button class="btn btn--primary" id="export-all">
+                            <i class="fas fa-download"></i>
+                            Export All
+                        </button>
+                    </div>
+                </div>
+                <div class="breadcrumb" id="breadcrumb">
+                    <span>Home</span> > <span>Dashboard</span>
+                </div>
+            </header>
+
+            <!-- Dashboard View -->
+            <div id="dashboard-view" class="view active">
+                <div class="dashboard-controls">
+                    <div class="search-filter">
+                        <input type="text" id="search-sessions" class="form-control" placeholder="Search by Subject ID or Muscle Group...">
+                        <select id="filter-muscle" class="form-control">
+                            <option value="">All Muscle Groups</option>
+                        </select>
+                        <select id="filter-electrode" class="form-control">
+                            <option value="">All Electrode Types</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="sessions-grid" id="sessions-grid">
+                    <!-- Session cards will be populated here -->
+                </div>
+            </div>
+
+            <!-- New Test View -->
+            <div id="new-test-view" class="view">
+                <div class="test-creation">
+                    <div class="test-form-section">
+                        <h3>Test Session Metadata</h3>
+                        <form id="new-test-form" class="test-form">
+                            <div class="form-group">
+                                <label class="form-label">Subject ID</label>
+                                <input type="text" id="subject-id" class="form-control" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Muscle Group</label>
+                                <select id="muscle-group" class="form-control" required>
+                                    <option value="">Select Muscle Group</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Body Placement Notes</label>
+                                <textarea id="body-placement" class="form-control" rows="3" placeholder="Describe electrode placement location..."></textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Electrode Type</label>
+                                <select id="electrode-type" class="form-control" required>
+                                    <option value="">Select Electrode Type</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">Electrode Configuration</label>
+                                <textarea id="electrode-config" class="form-control" rows="3" placeholder="Describe electrode configuration, spacing, reference placement..."></textarea>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="test-script-section">
+                        <h3>Python Test Script</h3>
+                        <div class="script-upload">
+                            <input type="file" id="script-file" accept=".py">
+                            <label for="script-file" class="btn btn--outline">
+                                <i class="fas fa-upload"></i>
+                                Upload Python Script
+                            </label>
+                        </div>
+                        <div id="script-preview" class="script-preview hidden">
+                            <h4>Script Preview:</h4>
+                            <pre id="script-content"></pre>
+                        </div>
+                    </div>
+
+                    <div class="test-execution-section">
+                        <h3>Device Connection</h3>
+                        <div class="device-connection">
+                            <button class="btn btn--outline" id="scan-devices">
+                                <i class="fas fa-bluetooth"></i>
+                                Scan for Devices
+                            </button>
+                            <select id="device-list" class="form-control" disabled>
+                                <option>No devices found</option>
+                            </select>
+                            <button class="btn btn--primary" id="connect-device" disabled>
+                                Connect
+                            </button>
+                        </div>
+                        
+                        <div class="test-controls">
+                            <button class="btn btn--primary btn--lg" id="start-test" disabled>
+                                <i class="fas fa-play"></i>
+                                Start Test
+                            </button>
+                            <button class="btn btn--outline" id="pause-test" disabled>
+                                <i class="fas fa-pause"></i>
+                                Pause
+                            </button>
+                            <button class="btn btn--outline" id="stop-test" disabled>
+                                <i class="fas fa-stop"></i>
+                                Stop
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="test-monitoring" id="test-monitoring" style="display: none;">
+                        <h3>Live Test Monitoring</h3>
+                        <div class="test-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="test-progress"></div>
+                            </div>
+                            <span id="test-status">Ready</span>
+                        </div>
+                        <div class="live-chart-container">
+                            <canvas id="live-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Session Detail View -->
+            <div id="session-detail-view" class="view">
+                <div class="session-detail">
+                    <div class="session-header">
+                        <button class="btn btn--outline" id="back-to-dashboard">
+                            <i class="fas fa-arrow-left"></i>
+                            Back to Dashboard
+                        </button>
+                        <div class="session-actions">
+                            <button class="btn btn--outline" id="export-session">
+                                <i class="fas fa-download"></i>
+                                Export Session
+                            </button>
+                            <button class="btn btn--outline" id="delete-session">
+                                <i class="fas fa-trash"></i>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="session-info" id="session-info">
+                        <!-- Session metadata will be populated here -->
+                    </div>
+                    
+                    <div class="session-charts">
+                        <div class="chart-tabs">
+                            <button class="tab-btn active" data-tab="raw-signals">Raw Signals</button>
+                            <button class="tab-btn" data-tab="metrics">Metrics</button>
+                            <button class="tab-btn" data-tab="phases">Test Phases</button>
+                        </div>
+                        
+                        <div class="tab-content active" id="raw-signals">
+                            <canvas id="session-signal-chart"></canvas>
+                        </div>
+                        
+                        <div class="tab-content" id="metrics">
+                            <canvas id="session-metrics-chart"></canvas>
+                        </div>
+                        
+                        <div class="tab-content" id="phases">
+                            <div class="phases-table" id="phases-table">
+                                <!-- Phases table will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comparison View -->
+            <div id="comparison-view" class="view">
+                <div class="comparison-container">
+                    <h3>Select Sessions to Compare</h3>
+                    <div class="session-selector" id="comparison-selector">
+                        <!-- Session checkboxes will be populated here -->
+                    </div>
+                    
+                    <div class="comparison-charts" id="comparison-charts" style="display: none;">
+                        <div class="comparison-section">
+                            <h4>Signal Comparison</h4>
+                            <canvas id="comparison-signal-chart"></canvas>
+                        </div>
+                        
+                        <div class="comparison-section">
+                            <h4>Metrics Comparison</h4>
+                            <canvas id="comparison-metrics-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Body Map View -->
+            <div id="body-map-view" class="view">
+                <div class="body-map-container">
+                    <h3>Interactive Body Map</h3>
+                    <p>Click on muscle groups to filter dashboard results</p>
+                    <div class="body-map">
+                        <svg id="body-svg" width="500" height="600" viewBox="0 0 500 600">
+                            <!-- Human body outline -->
+                            <g id="body-outline">
+                                <!-- Head -->
+                                <ellipse cx="250" cy="50" rx="40" ry="50" fill="none" stroke="#333" stroke-width="2"/>
+                                
+                                <!-- Torso -->
+                                <rect x="200" y="100" width="100" height="150" rx="20" fill="none" stroke="#333" stroke-width="2"/>
+                                
+                                <!-- Arms -->
+                                <rect x="120" y="120" width="80" height="30" rx="15" fill="none" stroke="#333" stroke-width="2"/>
+                                <rect x="300" y="120" width="80" height="30" rx="15" fill="none" stroke="#333" stroke-width="2"/>
+                                
+                                <!-- Legs -->
+                                <rect x="210" y="250" width="30" height="120" rx="15" fill="none" stroke="#333" stroke-width="2"/>
+                                <rect x="260" y="250" width="30" height="120" rx="15" fill="none" stroke="#333" stroke-width="2"/>
+                                
+                                <!-- Calves -->
+                                <rect x="215" y="370" width="20" height="80" rx="10" fill="none" stroke="#333" stroke-width="2"/>
+                                <rect x="265" y="370" width="20" height="80" rx="10" fill="none" stroke="#333" stroke-width="2"/>
+                            </g>
+                            
+                            <!-- Muscle regions (clickable) -->
+                            <g id="muscle-regions">
+                                <!-- Deltoid -->
+                                <circle cx="160" cy="135" r="25" class="muscle-region" data-muscle="Deltoid" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <circle cx="340" cy="135" r="25" class="muscle-region" data-muscle="Deltoid" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Pectoralis Major -->
+                                <ellipse cx="230" cy="140" rx="20" ry="15" class="muscle-region" data-muscle="Pectoralis Major" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="270" cy="140" rx="20" ry="15" class="muscle-region" data-muscle="Pectoralis Major" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Bicep -->
+                                <ellipse cx="160" cy="170" rx="15" ry="25" class="muscle-region" data-muscle="Bicep" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="340" cy="170" rx="15" ry="25" class="muscle-region" data-muscle="Bicep" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Tricep -->
+                                <ellipse cx="140" cy="170" rx="15" ry="25" class="muscle-region" data-muscle="Tricep" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="360" cy="170" rx="15" ry="25" class="muscle-region" data-muscle="Tricep" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Latissimus Dorsi -->
+                                <ellipse cx="180" cy="190" rx="20" ry="30" class="muscle-region" data-muscle="Latissimus Dorsi" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="320" cy="190" rx="20" ry="30" class="muscle-region" data-muscle="Latissimus Dorsi" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Quadriceps -->
+                                <ellipse cx="225" cy="290" rx="12" ry="35" class="muscle-region" data-muscle="Quadriceps" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="275" cy="290" rx="12" ry="35" class="muscle-region" data-muscle="Quadriceps" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Hamstring -->
+                                <ellipse cx="225" cy="310" rx="10" ry="30" class="muscle-region" data-muscle="Hamstring" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="275" cy="310" rx="10" ry="30" class="muscle-region" data-muscle="Hamstring" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                
+                                <!-- Gastrocnemius -->
+                                <ellipse cx="225" cy="410" rx="8" ry="25" class="muscle-region" data-muscle="Gastrocnemius" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                                <ellipse cx="275" cy="410" rx="8" ry="25" class="muscle-region" data-muscle="Gastrocnemius" fill="rgba(33, 128, 141, 0.3)" stroke="#21808D" stroke-width="2"/>
+                            </g>
+                        </svg>
+                    </div>
+                    
+                    <div class="muscle-legend">
+                        <h4>Muscle Groups</h4>
+                        <div class="legend-items" id="muscle-legend">
+                            <!-- Legend items will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Scripts View -->
+            <div id="scripts-view" class="view">
+                <div class="scripts-container">
+                    <h3>Python Script Management</h3>
+                    <div class="script-manager">
+                        <div class="script-upload-area">
+                            <input type="file" id="script-manager-file" accept=".py" multiple>
+                            <label for="script-manager-file" class="btn btn--primary">
+                                <i class="fas fa-upload"></i>
+                                Upload Scripts
+                            </label>
+                        </div>
+                        
+                        <div class="scripts-list" id="scripts-list">
+                            <!-- Scripts will be listed here -->
+                        </div>
+                        
+                        <div class="script-editor" id="script-editor" style="display: none;">
+                            <h4>Script Editor</h4>
+                            <textarea id="script-code" rows="20" placeholder="Python script content will appear here..."></textarea>
+                            <div class="editor-actions">
+                                <button class="btn btn--primary" id="save-script">Save Changes</button>
+                                <button class="btn btn--outline" id="test-script">Test Script</button>
+                                <button class="btn btn--outline" id="close-editor">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+
+        <!-- Modal Dialogs -->
+        <div id="modal-overlay" class="modal-overlay hidden">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="modal-title">Confirm Action</h3>
+                    <button class="modal-close" id="modal-close">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="modal-body" id="modal-body">
+                    <p>Are you sure you want to perform this action?</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn--outline" id="modal-cancel">Cancel</button>
+                    <button class="btn btn--primary" id="modal-confirm">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
