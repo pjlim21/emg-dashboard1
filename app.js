@@ -530,7 +530,8 @@ def process_emg_signal(data, fs=1000):
     }
 
     loadSampleData() {
-        this.sessions = [...this.sampleData.sessions];
+        const stored = this.loadStoredSessions();     // NEW
+        this.sessions = stored ?? [...this.sampleData.sessions];
         this.filteredSessions = [...this.sessions];
         this.scripts = [...this.sampleScripts];
     }
@@ -1201,6 +1202,19 @@ def process_emg_signal(data, fs=1000):
     }
 
 
+    /* ---------- persistence helpers ---------- */
+    saveSessions() {
+        try {
+            localStorage.setItem('emg_sessions', JSON.stringify(this.sessions));
+        } catch (e) {
+            this.showToast('Failed to save sessions: ' + e.message, 'error');
+        }
+    }
+    
+    loadStoredSessions() {
+        const raw = localStorage.getItem('emg_sessions');
+        return raw ? JSON.parse(raw) : null;
+    }
 
 
     /* 3 ▸ NEW helper (place it anywhere in the class) */
@@ -1345,8 +1359,21 @@ def process_emg_signal(data, fs=1000):
         document.getElementById('pause-test').disabled = true;
         document.getElementById('stop-test').disabled = true;
 
-        // Create new session from form data
-        const formData = new FormData(document.getElementById('new-test-form'));
+        // ----------  REPLACE everything from “// Create new session …” down ----------
+        /* 1.  Pull live data that was collected since startBLEStream() */
+        const rawData = this.emgBuffer.slice();      // deep copy
+        
+        /* 2.  Basic metrics in JS – keep it if you don’t rely on Python */
+        const metrics = this.calculateMetrics(rawData);
+        
+        /* 3.  If your Python script stored richer results in the global
+               namespace, merge them in (they win on key collisions):     */
+        let pyMetrics = {};
+        try {
+            pyMetrics = window.pyodide ?
+                window.pyodide.globals.get('RESULTS').toJs() : {};
+        } catch { /* RESULTS not set – ignore */ }
+        
         const newSession = {
             id: `emg-${String(this.sessions.length + 1).padStart(3, '0')}`,
             timestamp: new Date().toISOString(),
@@ -1355,56 +1382,34 @@ def process_emg_signal(data, fs=1000):
             bodyPlacement: document.getElementById('body-placement').value,
             electrodeType: document.getElementById('electrode-type').value,
             electrodeConfig: document.getElementById('electrode-config').value,
+        
+            /* one-phase example; expand if your acquisition script splits phases */
             testPhases: {
-                mvc1: {
-                    name: "MVC 1",
-                    duration: 5000,
-                    rawData: this.generateSampleEMGData(5000, 0.9, 50),
-                    rms: 0.856,
-                    mav: 0.735,
-                    snr: 25.2,
-                    maxAmplitude: 2.3
-                },
-                mvc2: {
-                    name: "MVC 2", 
-                    duration: 5000,
-                    rawData: this.generateSampleEMGData(5000, 0.85, 48),
-                    rms: 0.842,
-                    mav: 0.721,
-                    snr: 24.8,
-                    maxAmplitude: 2.25
-                },
-                submaximal: {
-                    name: "Sub-maximal (50%)",
-                    duration: 10000,
-                    rawData: this.generateSampleEMGData(10000, 0.43, 32),
-                    rms: 0.435,
-                    mav: 0.372,
-                    snr: 18.9,
-                    maxAmplitude: 1.12
-                },
-                walking: {
-                    name: "Walking",
-                    duration: 15000,
-                    rawData: this.generateSampleEMGData(15000, 0.22, 22),
-                    rms: 0.241,
-                    mav: 0.205,
-                    snr: 15.8,
-                    maxAmplitude: 0.82
-                }
+                main: Object.assign(
+                    {
+                        name: 'Full Recording',
+                        duration: rawData.length      // samples (1 kHz = ms)
+                    },
+                    metrics,
+                    pyMetrics,
+                    { rawData }
+                )
             }
         };
-
+        
         this.sessions.push(newSession);
         this.filteredSessions = [...this.sessions];
         this.updateBodyMap();
+        this.saveSessions();             // persists to localStorage
         
         this.showToast('Test completed and saved', 'success');
         
-        // Navigate to session detail
-        setTimeout(() => {
-            this.viewSession(newSession.id);
-        }, 1000);
+        /* optional: clear the buffer so the next test starts clean */
+        this.emgBuffer = [];
+        
+        /* jump to the detail page */
+        setTimeout(() => this.viewSession(newSession.id), 800);
+
     }
 
     pauseTest() {
@@ -1421,6 +1426,22 @@ def process_emg_signal(data, fs=1000):
         document.getElementById('pause-test').disabled = true;
         document.getElementById('stop-test').disabled = true;
         this.showToast('Test stopped', 'warning');
+    }
+    calculateMetrics(samples) {
+        if (!samples.length) return { rms: 0, mav: 0, snr: 0, maxAmplitude: 0 };
+    
+        const n   = samples.length;
+        const abs = samples.map(Math.abs);
+    
+        const rms = Math.sqrt(samples.reduce((s, v) => s + v * v, 0) / n);
+        const mav = abs.reduce((s, v) => s + v, 0) / n;
+        const max = Math.max(...abs);
+    
+        const mean  = samples.reduce((s, v) => s + v, 0) / n;
+        const std   = Math.sqrt(samples.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+        const snr   = std ? 20 * Math.log10(Math.abs(mean / std)) : 0;
+    
+        return { rms, mav, snr, maxAmplitude: max };
     }
 
     renderComparisonView() {
@@ -1881,4 +1902,16 @@ window.EMGBridge = {
     connect_device: async (id) => true,      // handled by UI
     get_current_data: () => dashboard.emgBuffer.slice()
 };
+/* ------- Python-visible UI helpers (simple stubs) ------- */
+window.displayInstructions = (msg) => {
+    console.log('[PY-Instruction]', msg);
+    const box = document.getElementById('test-instructions');
+    if (box) { box.textContent = msg; }
+};
+
+window.updateProgress = (p) => {
+    const bar = document.getElementById('test-progress');
+    if (bar) { bar.value = p; }
+};
+
 
