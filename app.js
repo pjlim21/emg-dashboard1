@@ -10,6 +10,16 @@ class EMGDashboard {
         this.charts = {};
         this.testInProgress = false;
         this.liveChart = null;
+        /* BLE handles */
++        this.bluetoothDevice   = null;
++        this.gattServer        = null;
++        this.emgCharacteristic = null;
++        this.emgBuffer         = [];          // live sample buffer
++
++        /* UUIDs used by many commercial BLE EMG boards (Nordic-UART-like)  
++           Adapt if your hardware advertises different values. */
++        this.EMG_SERVICE_UUID        = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
++        this.EMG_CHARACTERISTIC_UUID = '8c24159c-66a0-4340-8b55-465047ce37ce';
         
         // Sample data from application_data
         this.sampleData = {
@@ -1022,55 +1032,56 @@ def process_emg_signal(data, fs=1000):
         reader.readAsText(file);
     }
 
-    scanForDevices() {
-        const scanBtn = document.getElementById('scan-devices');
-        const deviceList = document.getElementById('device-list');
-        const connectBtn = document.getElementById('connect-device');
+    async scanForDevices() {
++        try {
++            this.showToast('Scanning for BLE devices…');
++
++            const device = await navigator.bluetooth.requestDevice({
++                filters: [{ services: [this.EMG_SERVICE_UUID] }],
++                optionalServices: [this.EMG_SERVICE_UUID]
++            });
++
++            // Populate the single-select list
++            const deviceList = document.getElementById('device-list');
++            deviceList.innerHTML = '';
++            const opt = document.createElement('option');
++            opt.value = device.id;
++            opt.textContent = `${device.name || 'Unnamed'} (${device.id})`;
++            deviceList.appendChild(opt);
++
++            this.bluetoothDevice = device;
++            document.getElementById('connect-device').disabled = false;
++        } catch (err) {
++            this.showToast(`Scan cancelled: ${err.message}`, 'warning');
++        }
++    }
 
-        scanBtn.textContent = 'Scanning...';
-        scanBtn.disabled = true;
-
-        // Simulate device scanning
-        setTimeout(() => {
-            const devices = [
-                'EMG Sensor Pro - BLE (AA:BB:CC:DD:EE:FF)',
-                'NeuroScan Device - Serial (COM3)',
-                'BioPac MP150 - USB'
-            ];
-
-            deviceList.innerHTML = '';
-            devices.forEach(device => {
-                const option = document.createElement('option');
-                option.value = device;
-                option.textContent = device;
-                deviceList.appendChild(option);
-            });
-
-            deviceList.disabled = false;
-            connectBtn.disabled = false;
-            scanBtn.textContent = 'Scan for Devices';
-            scanBtn.disabled = false;
-
-            this.showToast('Found 3 devices', 'success');
-        }, 2000);
-    }
-
-    connectDevice() {
-        const connectBtn = document.getElementById('connect-device');
-        const startBtn = document.getElementById('start-test');
-        
-        connectBtn.textContent = 'Connecting...';
-        connectBtn.disabled = true;
-
-        // Simulate device connection
-        setTimeout(() => {
-            connectBtn.textContent = 'Connected';
-            connectBtn.classList.add('btn--success');
-            startBtn.disabled = false;
-            
-            this.showToast('Device connected successfully', 'success');
-        }, 1500);
-    }
+    async connectDevice() {
++        if (!this.bluetoothDevice) return;
++
++        const btn = document.getElementById('connect-device');
++        btn.textContent = 'Connecting…';
++        btn.disabled    = true;
++
++        try {
++            this.gattServer = await this.bluetoothDevice.gatt.connect();
++            const service   = await this.gattServer.getPrimaryService(
++                                    this.EMG_SERVICE_UUID);
++            this.emgCharacteristic = await service.getCharacteristic(
++                                        this.EMG_CHARACTERISTIC_UUID);
++
++            this.showToast('BLE device connected', 'success');
++            btn.textContent = 'Connected';
++            btn.classList.add('btn--success');
++
++            // Ready to record
++            document.getElementById('start-test').disabled = false;
++        } catch (err) {
++            this.showToast(`Connection failed: ${err.message}`, 'error');
++            btn.textContent = 'Connect Device';
++            btn.disabled    = false;
++        }
++    }
 
     startTest() {
         const form = document.getElementById('new-test-form');
@@ -1086,11 +1097,23 @@ def process_emg_signal(data, fs=1000):
         document.getElementById('stop-test').disabled = false;
 
         this.initializeLiveChart();
-        this.simulateTestExecution();
+        this.startBLEStream();
         
         this.showToast('Test started', 'success');
     }
-
+    async startBLEStream() {
++        if (!this.emgCharacteristic) {
++            this.showToast('No characteristic – connect first', 'error');
++            return;
++        }
++
++        this.emgBuffer = [];
++        await this.emgCharacteristic.startNotifications();
++        this.emgCharacteristic.addEventListener(
++            'characteristicvaluechanged',
++            this.onBLEData.bind(this)
++        );
++    }
     initializeLiveChart() {
         const canvas = document.getElementById('live-chart');
         const ctx = canvas.getContext('2d');
