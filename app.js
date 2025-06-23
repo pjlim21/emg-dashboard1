@@ -1902,16 +1902,19 @@ window.EMGBridge = {
     connect_device: async (id) => true,      // handled by UI
     get_current_data: () => dashboard.emgBuffer.slice()
 };
-/* ------- Python-visible UI helpers (simple stubs) ------- */
+/* =====  Instruction & progress helpers visible to Pyodide ===== */
 window.displayInstructions = (msg) => {
-    console.log('[PY-Instruction]', msg);
-    const box = document.getElementById('test-instructions');
-    if (box) { box.textContent = msg; }
+    console.log('[PY] ', msg);
+    const card = document.getElementById('instructions-card');
+    const box  = document.getElementById('test-instructions');
+
+    if (box)  box.textContent = msg;
+    if (card) card.classList.remove('hidden');    // make it appear
 };
 
-window.updateProgress = (p) => {
+window.updateProgress = (percent) => {
     const bar = document.getElementById('test-progress');
-    if (bar) { bar.value = p; }
+    if (bar)  bar.value = Math.min(Math.max(percent, 0), 100);
 };
 
 
