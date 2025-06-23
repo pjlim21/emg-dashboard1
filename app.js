@@ -10,6 +10,9 @@ class EMGDashboard {
         this.charts = {};
         this.testInProgress = false;
         this.liveChart = null;
+
+        /* NEW: which Python file is chosen for a test */
+        this.currentScript    = null;
         /* BLE handles */
         this.bluetoothDevice   = null;
         this.gattServer        = null;
@@ -688,6 +691,16 @@ def process_emg_signal(data, fs=1000):
             electrodeSelect.appendChild(option.cloneNode(true));
             filterElectrodeSelect.appendChild(option.cloneNode(true));
         });
+        /* NEW: scripts dropdown */
+        if (scriptSelect) {
+            scriptSelect.innerHTML = '<option value="">-- choose script --</option>';
+            this.scripts.forEach((s, idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = s.name;
+                scriptSelect.appendChild(opt);
+            });
+        }
     }
 
     navigateTo(view) {
@@ -1121,13 +1134,26 @@ def process_emg_signal(data, fs=1000):
     
         // =================== 4.  START / STOP TEST ===================
     // --- replace the startTest() body ---
-    startTest() {
+    /* ========== 3.  startTest()  (now async) ========== */
+    async startTest() {
         const form = document.getElementById('new-test-form');
         if (!form.checkValidity()) {
             form.reportValidity();
             return;
         }
     
+        /* ensure a script was picked */
+        const sel = document.getElementById('script-select').value;
+        if (sel === '') {
+            this.showToast('Please pick an acquisition script first', 'error');
+            return;
+        }
+        this.currentScript = this.scripts[parseInt(sel, 10)];
+    
+        /* run that Python file in Pyodide */
+        await this.runPythonScript(this.currentScript);
+    
+        /* existing BLE start-up */
         this.testInProgress = true;
         document.getElementById('test-monitoring').style.display = 'block';
         document.getElementById('start-test').disabled = true;
@@ -1135,10 +1161,26 @@ def process_emg_signal(data, fs=1000):
         document.getElementById('stop-test').disabled  = false;
     
         this.initializeLiveChart();
-        this.startBLEStream();           // <<< real stream, not simulation
+        this.startBLEStream();
         this.showToast('Test started', 'success');
     }
-    
+
+    /* ========== 4.  Helper added just below startTest() ========== */
+    async runPythonScript(script) {
+        try {
+            if (!window.pyodide) {
+                this.showToast('Loading Python…', 'info');
+                window.pyodide = await loadPyodide();
+                this.showToast('Python ready', 'success');
+            }
+            await window.pyodide.runPythonAsync(script.content);
+            this.showToast(`Script “${script.name}” running`, 'success');
+        } catch (err) {
+            console.error(err);
+            this.showToast(`Script error: ${err.message}`, 'error');
+        }
+    }
+
     // --- NEW helpers ---
     async startBLEStream() {
         if (!this.emgCharacteristic) {
