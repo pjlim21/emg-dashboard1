@@ -1182,16 +1182,23 @@ def process_emg_signal(data, fs=1000):
         try {
             if (!window.pyodide) {
                 this.showToast('Loading Python…', 'info');
-                window.pyodide = await loadPyodide();
+                window.pyodide = await loadPyodide({
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/'
+                });
                 this.showToast('Python ready', 'success');
             }
+    
+    -       await window.pyodide.runPythonAsync(script.content);
+            await window.pyodide.loadPackagesFromImports(script.content);
             await window.pyodide.runPythonAsync(script.content);
+    
             this.showToast(`Script “${script.name}” running`, 'success');
         } catch (err) {
             console.error(err);
             this.showToast(`Script error: ${err.message}`, 'error');
         }
     }
+
     /* 3 ▸ NEW helper (place it anywhere in the class) */
     previewSelectedScript() {
         const sel       = document.getElementById('script-select').value;
