@@ -1114,6 +1114,10 @@ def process_emg_signal(data, fs=1000):
             connectBtn.textContent = 'Connected';
             connectBtn.classList.add('btn--success');
             startBtn.disabled = false;
+
+            this.commandCharacteristic = await service.getCharacteristic(
+                this.EMG_COMMAND_CHARACTERISTIC_UUID
+            );
             this.showToast('BLE device connected', 'success');
         } catch (err) {
             connectBtn.textContent = 'Connect Device';
@@ -1122,9 +1126,7 @@ def process_emg_signal(data, fs=1000):
         }
         /* Already have:  this.emgCharacteristic = …  */
         /* NEW — also obtain the characteristic used for commands */
-        this.commandCharacteristic = await service.getCharacteristic(
-            this.EMG_COMMAND_CHARACTERISTIC_UUID
-        );
+        
 
     }
     /* ---------------------------------------------------------
