@@ -669,31 +669,34 @@ def process_emg_signal(data, fs=1000):
     }
 
     populateFormOptions() {
-        const muscleSelect = document.getElementById('muscle-group');
-        const electrodeSelect = document.getElementById('electrode-type');
-        const filterMuscleSelect = document.getElementById('filter-muscle');
+        const muscleSelect          = document.getElementById('muscle-group');
+        const electrodeSelect       = document.getElementById('electrode-type');
+        const filterMuscleSelect    = document.getElementById('filter-muscle');
         const filterElectrodeSelect = document.getElementById('filter-electrode');
-
-        // Populate muscle groups
+        const scriptSelect          = document.getElementById('script-select');   // NEW
+    
+        /* muscle groups */
         this.sampleData.muscleGroups.forEach(muscle => {
-            const option = document.createElement('option');
-            option.value = muscle;
-            option.textContent = muscle;
-            muscleSelect.appendChild(option.cloneNode(true));
-            filterMuscleSelect.appendChild(option.cloneNode(true));
+            const opt = document.createElement('option');
+            opt.value = muscle;
+            opt.textContent = muscle;
+            muscleSelect.appendChild(opt.cloneNode(true));
+            filterMuscleSelect.appendChild(opt.cloneNode(true));
         });
-
-        // Populate electrode types
+    
+        /* electrode types */
         this.sampleData.electrodeTypes.forEach(type => {
-            const option = document.createElement('option');
-            option.value = type;
-            option.textContent = type;
-            electrodeSelect.appendChild(option.cloneNode(true));
-            filterElectrodeSelect.appendChild(option.cloneNode(true));
+            const opt = document.createElement('option');
+            opt.value = type;
+            opt.textContent = type;
+            electrodeSelect.appendChild(opt.cloneNode(true));
+            filterElectrodeSelect.appendChild(opt.cloneNode(true));
         });
-        /* NEW: scripts dropdown */
-        if (scriptSelect) {
-            scriptSelect.innerHTML = '<option value="">-- choose script --</option>';
+    
+        /* scripts */
+        if (scriptSelect) {                                   // ← scripts list
+            scriptSelect.innerHTML =
+                '<option value="">-- choose script --</option>';
             this.scripts.forEach((s, idx) => {
                 const opt = document.createElement('option');
                 opt.value = idx;
@@ -702,6 +705,7 @@ def process_emg_signal(data, fs=1000):
             });
         }
     }
+
 
     navigateTo(view) {
         // Update navigation
@@ -1751,6 +1755,7 @@ def process_emg_signal(data, fs=1000):
         });
 
         this.populateScriptsList();
+        this.populateFormOptions();   // keep the dropdown in sync
         this.showToast(`${files.length} script(s) uploaded`, 'success');
     }
 
