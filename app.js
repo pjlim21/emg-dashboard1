@@ -567,6 +567,11 @@ def process_emg_signal(data, fs=1000):
         document.getElementById('script-file').addEventListener('change', (e) => {
             this.handleScriptUpload(e.target.files[0]);
         });
+        
+        document.getElementById('script-select').addEventListener('change', () => {
+            this.previewSelectedScript();          // live preview when user picks a file
+        });
+
 
         document.getElementById('scan-devices').addEventListener('click', () => {
             this.scanForDevices();
@@ -704,6 +709,7 @@ def process_emg_signal(data, fs=1000):
                 scriptSelect.appendChild(opt);
             });
         }
+        this.previewSelectedScript();
     }
 
 
@@ -1184,6 +1190,26 @@ def process_emg_signal(data, fs=1000):
             this.showToast(`Script error: ${err.message}`, 'error');
         }
     }
+    /* 3 ▸ NEW helper (place it anywhere in the class) */
+    previewSelectedScript() {
+        const sel       = document.getElementById('script-select').value;
+        const preview   = document.getElementById('script-preview');   // already in HTML[1]
+        const contentEl = document.getElementById('script-content');   // already in HTML[1]
+    
+        if (sel === '') {                  // nothing chosen → hide box
+            preview.classList.add('hidden');
+            contentEl.textContent = '';
+            return;
+        }
+    
+        const script  = this.scripts[parseInt(sel, 10)];
+        const snippet = script.content.slice(0, 500) +
+                       (script.content.length > 500 ? ' …' : '');
+    
+        contentEl.textContent = snippet;
+        preview.classList.remove('hidden');
+    }
+
 
     // --- NEW helpers ---
     async startBLEStream() {
