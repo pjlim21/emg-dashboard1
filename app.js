@@ -1188,7 +1188,13 @@ def process_emg_signal(data, fs=1000):
                 this.showToast('Python ready', 'success');
             }
     
-    -       await window.pyodide.runPythonAsync(script.content);
+           await window.pyodide.runPythonAsync(script.content);
+          /* NEW ──────────────────────────────────────────────
+            * 1.  Ask Pyodide to analyse the code, find all
+           *     top-level “import …” statements and fetch the
+            *     corresponding wheels (.data files for NumPy).
+            * 2.  Only then run the script.
+            */
             await window.pyodide.loadPackagesFromImports(script.content);
             await window.pyodide.runPythonAsync(script.content);
     
@@ -1198,6 +1204,7 @@ def process_emg_signal(data, fs=1000):
             this.showToast(`Script error: ${err.message}`, 'error');
         }
     }
+
 
     /* 3 ▸ NEW helper (place it anywhere in the class) */
     previewSelectedScript() {
