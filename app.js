@@ -11,15 +11,15 @@ class EMGDashboard {
         this.testInProgress = false;
         this.liveChart = null;
         /* BLE handles */
-+        this.bluetoothDevice   = null;
-+        this.gattServer        = null;
-+        this.emgCharacteristic = null;
-+        this.emgBuffer         = [];          // live sample buffer
++       this.bluetoothDevice   = null;
++       this.gattServer        = null;
++       this.emgCharacteristic = null;
++       this.emgBuffer         = [];          // live sample buffer
 +
 +        /* UUIDs used by many commercial BLE EMG boards (Nordic-UART-like)  
 +           Adapt if your hardware advertises different values. */
-+        this.EMG_SERVICE_UUID        = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
-+        this.EMG_CHARACTERISTIC_UUID = '8c24159c-66a0-4340-8b55-465047ce37ce';
++       this.EMG_SERVICE_UUID        = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
++       this.EMG_CHARACTERISTIC_UUID = '8c24159c-66a0-4340-8b55-465047ce37ce';
         /* If the same UUID is used for both data and commands,
         just point to EMG_CHARACTERISTIC_UUID again.           */
         this.EMG_COMMAND_CHARACTERISTIC_UUID = this.EMG_CHARACTERISTIC_UUID;   // <-- NEW
