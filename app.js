@@ -237,6 +237,7 @@ emg = EMGAcquisition()
                 size: '4.5 KB',
                 content: `
 import pyodide
+import asyncio
 from js import EMGBridge, displayInstructions, updateProgress
 import numpy as np
 import time
@@ -249,6 +250,7 @@ class DynamicContractionTest:
         self.emg_data = {}
         self.sampling_rate = 1000  # Hz
         self.is_running = False
+        self.loop = asyncio.get_event_loop()
         
     def connect_device(self, device_id):
         displayInstructions("Connecting to device...")
@@ -260,7 +262,7 @@ class DynamicContractionTest:
             displayInstructions("Failed to connect to device")
             return False
     
-    def run_test(self):
+    async def run_test(self):
         """Run the complete dynamic contraction protocol"""
         self.is_running = True
         self.emg_data = {
@@ -273,34 +275,34 @@ class DynamicContractionTest:
         }
         
         # First MVC
-        if not self._run_mvc_phase("mvc1", "Perform maximum voluntary contraction"):
+        if not await self._run_mvc_phase("mvc1", "Perform maximum voluntary contraction"):
             return False
             
         # Rest period
-        if not self._run_rest_phase("rest1", "Rest for 30 seconds"):
+        if not await self._run_rest_phase("rest1", "Rest for 30 seconds"):
             return False
             
         # Second MVC
-        if not self._run_mvc_phase("mvc2", "Perform second maximum voluntary contraction"):
+        if not await self._run_mvc_phase("mvc2", "Perform second maximum voluntary contraction"):
             return False
             
         # Rest period
-        if not self._run_rest_phase("rest2", "Rest for 30 seconds"):
+        if not await self._run_rest_phase("rest2", "Rest for 30 seconds"):
             return False
             
         # 50% Sub-maximal contraction
-        if not self._run_submaximal_phase("submaximal", "Perform 50% of maximum contraction"):
+        if not await self._run_submaximal_phase("submaximal", "Perform 50% of maximum contraction"):
             return False
             
         # Walking test
-        if not self._run_walking_phase("walking", "Walk at a comfortable pace"):
+        if not await self._run_walking_phase("walking", "Walk at a comfortable pace"):
             return False
             
         displayInstructions("Test complete! Processing results...")
         self._process_results()
         return True
     
-    def _run_mvc_phase(self, phase_id, instruction, duration=5):
+    async def _run_mvc_phase(self, phase_id, instruction, duration=5):
         """Run a maximum voluntary contraction phase"""
         displayInstructions(f"{instruction} for {duration} seconds")
         EMGBridge.start_stream()
@@ -323,7 +325,7 @@ class DynamicContractionTest:
         EMGBridge.stop_stream()
         return True
     
-    def _run_rest_phase(self, phase_id, instruction, duration=30):
+    async def _run_rest_phase(self, phase_id, instruction, duration=30):
         """Run a rest phase"""
         displayInstructions(f"{instruction}")
         EMGBridge.start_stream()
@@ -342,7 +344,7 @@ class DynamicContractionTest:
         EMGBridge.stop_stream()
         return True
     
-    def _run_submaximal_phase(self, phase_id, instruction, duration=10):
+    async def _run_submaximal_phase(self, phase_id, instruction, duration=10):
         """Run a submaximal contraction phase"""
         displayInstructions(f"{instruction} for {duration} seconds")
         EMGBridge.start_stream()
@@ -351,7 +353,7 @@ class DynamicContractionTest:
         while time.time() - start_time < duration and self.is_running:
             progress = ((time.time() - start_time) / duration) * 100
             updateProgress(progress)
-            time.sleep(0.1)
+            asyncio.sleep(0.1)
             
         if not self.is_running:
             EMGBridge.stop_stream()
@@ -361,7 +363,7 @@ class DynamicContractionTest:
         EMGBridge.stop_stream()
         return True
     
-    def _run_walking_phase(self, phase_id, instruction, duration=15):
+    async def _run_walking_phase(self, phase_id, instruction, duration=15):
         """Run a walking test phase"""
         displayInstructions(f"{instruction} for {duration} seconds")
         EMGBridge.start_stream()
@@ -370,7 +372,7 @@ class DynamicContractionTest:
         while time.time() - start_time < duration and self.is_running:
             progress = ((time.time() - start_time) / duration) * 100
             updateProgress(progress)
-            time.sleep(0.1)
+            asyncio.sleep(0.1)
             
         if not self.is_running:
             EMGBridge.stop_stream()
