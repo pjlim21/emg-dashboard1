@@ -1178,24 +1178,21 @@ def process_emg_signal(data, fs=1000):
     }
 
     /* ========== 4.  Helper added just below startTest() ========== */
+    /*  runPythonScript – replace the whole method */
     async runPythonScript(script) {
         try {
+            /* 1 ─ load the runtime once */
             if (!window.pyodide) {
                 this.showToast('Loading Python…', 'info');
                 window.pyodide = await loadPyodide({
-                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/'
+                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/'
                 });
-                this.showToast('Python ready', 'success');
             }
     
-           await window.pyodide.runPythonAsync(script.content);
-          /* NEW ──────────────────────────────────────────────
-            * 1.  Ask Pyodide to analyse the code, find all
-           *     top-level “import …” statements and fetch the
-            *     corresponding wheels (.data files for NumPy).
-            * 2.  Only then run the script.
-            */
-            await window.pyodide.loadPackagesFromImports(script.content);
+            /* 2 ─ pull every std-lib package the code imports (numpy, scipy, …) */
+            await window.pyodide.loadPackagesFromImports(script.content);   // ← NEW[7]
+    
+            /* 3 ─ run the user’s code */
             await window.pyodide.runPythonAsync(script.content);
     
             this.showToast(`Script “${script.name}” running`, 'success');
@@ -1204,6 +1201,7 @@ def process_emg_signal(data, fs=1000):
             this.showToast(`Script error: ${err.message}`, 'error');
         }
     }
+
 
 
     /* 3 ▸ NEW helper (place it anywhere in the class) */
