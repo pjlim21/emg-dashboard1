@@ -1179,20 +1179,18 @@ def process_emg_signal(data, fs=1000):
 
     /* ========== 4.  Helper added just below startTest() ========== */
     /*  runPythonScript – replace the whole method */
+    // inside EMGDashboard, replace the first lines of runPythonScript()
     async runPythonScript(script) {
         try {
-            /* 1 ─ load the runtime once */
             if (!window.pyodide) {
+                const VER = '0.27.1';                                    // ← ONE source of truth
                 this.showToast('Loading Python…', 'info');
                 window.pyodide = await loadPyodide({
-                    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.7/full/'
+                    indexURL: `https://cdn.jsdelivr.net/pyodide/v${VER}/full/`
                 });
             }
     
-            /* 2 ─ pull every std-lib package the code imports (numpy, scipy, …) */
-            await window.pyodide.loadPackagesFromImports(script.content);   // ← NEW[7]
-    
-            /* 3 ─ run the user’s code */
+            await window.pyodide.loadPackagesFromImports(script.content);
             await window.pyodide.runPythonAsync(script.content);
     
             this.showToast(`Script “${script.name}” running`, 'success');
@@ -1201,6 +1199,7 @@ def process_emg_signal(data, fs=1000):
             this.showToast(`Script error: ${err.message}`, 'error');
         }
     }
+
 
 
 
@@ -1854,8 +1853,9 @@ def process_emg_signal(data, fs=1000):
 
 // Initialize the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new EMGDashboard();
+    window.dashboard = new EMGDashboard();  
 });
+
 
 // =================== 6.  OPTIONAL – PYODIDE BRIDGE  ===================
 //  (Add after the class so Python scripts keep working)
