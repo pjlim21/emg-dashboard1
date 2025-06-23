@@ -1921,13 +1921,10 @@ window.EMGBridge = {
 };
 /* =====  Instruction & progress helpers visible to Pyodide ===== */
 window.displayInstructions = (msg) => {
-    console.log('[PY] ', msg);
-    const card = document.getElementById('instructions-card');
-    const box  = document.getElementById('test-instructions');
-
-    if (box)  box.textContent = msg;
-    if (card) card.classList.remove('hidden');    // make it appear
+  const box = document.getElementById('test-instructions');
+  if (box) box.textContent = msg;
 };
+
 
 window.updateProgress = (percent) => {
     const bar = document.getElementById('test-progress');
