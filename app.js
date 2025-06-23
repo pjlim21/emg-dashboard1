@@ -1199,7 +1199,34 @@ def process_emg_signal(data, fs=1000):
             }
     
             await window.pyodide.loadPackagesFromImports(script.content);
+
+            if (this.bluetoothDevice) {
+              /* make BLE_DEVICE_ID visible to Python */
+              window.pyodide.globals.set('BLE_DEVICE_ID', this.bluetoothDevice.id);
+            }
+            
+            /* execute the user’s file */
             await window.pyodide.runPythonAsync(script.content);
+            
+            /* ── NEW: if the script created a global called “test”, run it now ── */
+            await window.pyodide.runPythonAsync(`
+            import asyncio, inspect, js
+            
+            if "test" in globals():
+                tgt = globals()["test"]
+            
+                # connect if a connect_device() method exists
+                if hasattr(tgt, "connect_device") and "BLE_DEVICE_ID" in globals():
+                    tgt.connect_device(BLE_DEVICE_ID)
+            
+                # run the test in a background task so the browser stays responsive
+                if hasattr(tgt, "run_test") and inspect.isroutine(tgt.run_test):
+                    asyncio.create_task(
+                        asyncio.to_thread(tgt.run_test)   # off-load the blocking loop
+                    )
+            `);
+
+        
     
             this.showToast(`Script “${script.name}” running`, 'success');
         } catch (err) {
@@ -1237,7 +1264,7 @@ def process_emg_signal(data, fs=1000):
         }
     
         const script  = this.scripts[parseInt(sel, 10)];
-        const snippet = script.content.slice(0, 500) +
+        const snippet = script.content.slice(0, 1000) +
                        (script.content.length > 500 ? ' …' : '');
     
         contentEl.textContent = snippet;
