@@ -1190,6 +1190,13 @@ def process_emg_signal(data, fs=1000):
                     indexURL: `https://cdn.jsdelivr.net/pyodide/v${VER}/full/`
                 });
             }
+            /* ── NEW ── make BLE_DEVICE_ID visible to Python */
+            if (this.bluetoothDevice) {
+              window.pyodide.globals.set(
+                'BLE_DEVICE_ID',                // variable name in Python
+                this.bluetoothDevice.id         // value
+              );                                // ← pyodide.globals example[5]
+            }
     
             await window.pyodide.loadPackagesFromImports(script.content);
             await window.pyodide.runPythonAsync(script.content);
@@ -1899,8 +1906,18 @@ window.EMGBridge = {
                 'characteristicvaluechanged', window._pyHandler);
         }
     },
-    connect_device: async (id) => true,      // handled by UI
+    connect_device: async (device_id) => {
+      /* if script passes an empty string, fall back to the device we already connected */
+        const wanted = device_id || (dashboard.bluetoothDevice && dashboard.bluetoothDevice.id);
+    
+      /* simple check – return True only if the requested id matches the current one */
+        if (!wanted) return false;
+        return dashboard.bluetoothDevice && dashboard.bluetoothDevice.id === wanted;
+    },
+
     get_current_data: () => dashboard.emgBuffer.slice()
+
+    
 };
 /* =====  Instruction & progress helpers visible to Pyodide ===== */
 window.displayInstructions = (msg) => {
