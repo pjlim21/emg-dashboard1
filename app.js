@@ -20,6 +20,10 @@ class EMGDashboard {
 +           Adapt if your hardware advertises different values. */
 +        this.EMG_SERVICE_UUID        = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
 +        this.EMG_CHARACTERISTIC_UUID = '8c24159c-66a0-4340-8b55-465047ce37ce';
+        /* If the same UUID is used for both data and commands,
+        just point to EMG_CHARACTERISTIC_UUID again.           */
+        this.EMG_COMMAND_CHARACTERISTIC_UUID = this.EMG_CHARACTERISTIC_UUID;   // <-- NEW
+
         
         // Sample data from application_data
         this.sampleData = {
@@ -1032,88 +1036,167 @@ def process_emg_signal(data, fs=1000):
         reader.readAsText(file);
     }
 
+        // =================== 2.  SCAN FOR DEVICES  ===================
+    // Replace the entire old scanForDevices() with the real BLE version.
     async scanForDevices() {
-+        try {
-+            this.showToast('Scanning for BLE devices…');
-+
-+            const device = await navigator.bluetooth.requestDevice({
-+                filters: [{ services: [this.EMG_SERVICE_UUID] }],
-+                optionalServices: [this.EMG_SERVICE_UUID]
-+            });
-+
-+            // Populate the single-select list
-+            const deviceList = document.getElementById('device-list');
-+            deviceList.innerHTML = '';
-+            const opt = document.createElement('option');
-+            opt.value = device.id;
-+            opt.textContent = `${device.name || 'Unnamed'} (${device.id})`;
-+            deviceList.appendChild(opt);
-+
-+            this.bluetoothDevice = device;
-+            document.getElementById('connect-device').disabled = false;
-+        } catch (err) {
-+            this.showToast(`Scan cancelled: ${err.message}`, 'warning');
-+        }
-+    }
-
+        const scanBtn    = document.getElementById('scan-devices');
+        const deviceList = document.getElementById('device-list');
+        const connectBtn = document.getElementById('connect-device');
+    
+        scanBtn.textContent = 'Scanning…';
+        scanBtn.disabled    = true;
+        deviceList.innerHTML = '';
+        connectBtn.disabled = true;
+    
+        try {
+            const device = await navigator.bluetooth.requestDevice({
+                filters: [{ services: [this.EMG_SERVICE_UUID] }],
+                optionalServices: [this.EMG_SERVICE_UUID]
+            });
+    
+            // Populate single-select list with the chosen device
+            const opt       = document.createElement('option');
+            opt.value       = device.id;
+            opt.textContent = `${device.name || 'Unnamed'} (${device.id})`;
+            deviceList.appendChild(opt);
+            deviceList.disabled = false;
+    
+            this.bluetoothDevice = device;
+            connectBtn.disabled  = false;
+            this.showToast('Device selected – click “Connect”', 'success');
+        } catch (err) {
+            this.showToast(`Scan cancelled: ${err.message}`, 'warning');
+        } finally {
+            scanBtn.textContent = 'Scan for Devices';
+            scanBtn.disabled    = false;
+        }
+    }
+    
+    
+        // =================== 3.  CONNECT TO DEVICE  ===================
     async connectDevice() {
-+        if (!this.bluetoothDevice) return;
-+
-+        const btn = document.getElementById('connect-device');
-+        btn.textContent = 'Connecting…';
-+        btn.disabled    = true;
-+
-+        try {
-+            this.gattServer = await this.bluetoothDevice.gatt.connect();
-+            const service   = await this.gattServer.getPrimaryService(
-+                                    this.EMG_SERVICE_UUID);
-+            this.emgCharacteristic = await service.getCharacteristic(
-+                                        this.EMG_CHARACTERISTIC_UUID);
-+
-+            this.showToast('BLE device connected', 'success');
-+            btn.textContent = 'Connected';
-+            btn.classList.add('btn--success');
-+
-+            // Ready to record
-+            document.getElementById('start-test').disabled = false;
-+        } catch (err) {
-+            this.showToast(`Connection failed: ${err.message}`, 'error');
-+            btn.textContent = 'Connect Device';
-+            btn.disabled    = false;
-+        }
-+    }
+        const connectBtn = document.getElementById('connect-device');
+        const startBtn   = document.getElementById('start-test');
+    
+        if (!this.bluetoothDevice) return;
+    
+        connectBtn.textContent = 'Connecting…';
+        connectBtn.disabled    = true;
+    
+        try {
+            this.gattServer = await this.bluetoothDevice.gatt.connect();
+            const service   = await this.gattServer.getPrimaryService(this.EMG_SERVICE_UUID);
+            this.emgCharacteristic = await service.getCharacteristic(this.EMG_CHARACTERISTIC_UUID);
+    
+            connectBtn.textContent = 'Connected';
+            connectBtn.classList.add('btn--success');
+            startBtn.disabled = false;
+            this.showToast('BLE device connected', 'success');
+        } catch (err) {
+            connectBtn.textContent = 'Connect Device';
+            connectBtn.disabled    = false;
+            this.showToast(`Connection failed: ${err.message}`, 'error');
+        }
+        /* Already have:  this.emgCharacteristic = …  */
+        /* NEW — also obtain the characteristic used for commands */
+        this.commandCharacteristic = await service.getCharacteristic(
+            this.EMG_COMMAND_CHARACTERISTIC_UUID
+        );
 
+    }
+    /* ---------------------------------------------------------
+   Send a UTF-8 string (or Uint8Array) to the command handle
+    --------------------------------------------------------- */
+    async writeCommand(cmd) {
+        if (!this.commandCharacteristic) {
+            this.showToast('Command characteristic not available', 'error');
+            return;
+        }
+        const data = (cmd instanceof Uint8Array) ? cmd
+                   : new TextEncoder().encode(cmd);   // convert string → bytes
+        await this.commandCharacteristic.writeValue(data);          // ← [3]
+    }
+
+    
+    
+        // =================== 4.  START / STOP TEST ===================
+    // --- replace the startTest() body ---
     startTest() {
         const form = document.getElementById('new-test-form');
         if (!form.checkValidity()) {
             form.reportValidity();
             return;
         }
-
+    
         this.testInProgress = true;
         document.getElementById('test-monitoring').style.display = 'block';
         document.getElementById('start-test').disabled = true;
         document.getElementById('pause-test').disabled = false;
-        document.getElementById('stop-test').disabled = false;
-
+        document.getElementById('stop-test').disabled  = false;
+    
         this.initializeLiveChart();
-        this.startBLEStream();
-        
+        this.startBLEStream();           // <<< real stream, not simulation
         this.showToast('Test started', 'success');
     }
+    
+    // --- NEW helpers ---
     async startBLEStream() {
-+        if (!this.emgCharacteristic) {
-+            this.showToast('No characteristic – connect first', 'error');
-+            return;
-+        }
-+
-+        this.emgBuffer = [];
-+        await this.emgCharacteristic.startNotifications();
-+        this.emgCharacteristic.addEventListener(
-+            'characteristicvaluechanged',
-+            this.onBLEData.bind(this)
-+        );
-+    }
+        if (!this.emgCharacteristic) {
+            this.showToast('No characteristic – connect first', 'error');
+            return;
+        }
+        /* ── NEW ── send the command that tells the sensor to begin streaming */
+        try {
+            await this.writeCommand('start');          // ASCII 0x73 0x74 0x61 0x72 0x74
+            this.showToast('“start” command sent', 'info');
+        } catch(err) {
+            this.showToast('Failed to send start command: ' + err.message, 'error');
+            return;
+        }
+    
+        this.emgBuffer = [];
+        await this.emgCharacteristic.startNotifications();
+        this.emgCharacteristic.addEventListener(
+            'characteristicvaluechanged', this.onBLEData.bind(this)
+        );
+    }
+    
+    onBLEData(event) {
+        // Example: little-endian signed 16-bit samples
+        const dv = event.target.value;
+        for (let i = 0; i < dv.byteLength; i += 2) {
+            const sample = dv.getInt16(i, true) / 1000; // scale to mV
+            this.emgBuffer.push(sample);
+    
+            // Push into chart
+            const data = this.liveChart.data;
+            data.labels.push(data.labels.length);
+            data.datasets[0].data.push(sample);
+            if (data.labels.length > 1000) {    // keep last 1000 pts
+                data.labels.shift();
+                data.datasets[0].data.shift();
+            }
+        }
+        this.liveChart.update('none');
+    }
+    
+    // --- replace stopTest() so it turns the stream off ---
+    async stopTest() {
+        this.testInProgress = false;
+        document.getElementById('test-monitoring').style.display = 'none';
+        document.getElementById('start-test').disabled = false;
+        document.getElementById('pause-test').disabled = true;
+        document.getElementById('stop-test').disabled  = true;
+    
+        if (this.emgCharacteristic) {
+            try { await this.emgCharacteristic.stopNotifications(); } catch {}
+            this.emgCharacteristic.removeEventListener(
+                'characteristicvaluechanged', this.onBLEData.bind(this)
+            );
+        }
+        this.showToast('Test stopped', 'warning');
+    }
+
     initializeLiveChart() {
         const canvas = document.getElementById('live-chart');
         const ctx = canvas.getContext('2d');
@@ -1169,60 +1252,6 @@ def process_emg_signal(data, fs=1000):
         });
     }
 
-    simulateTestExecution() {
-        const phases = ['MVC 1', 'Rest', 'MVC 2', 'Rest', 'Sub-maximal', 'Walking'];
-        let currentPhaseIndex = 0;
-        let phaseProgress = 0;
-        let totalTime = 0;
-        const totalDuration = 40000; // 40 seconds total
-        
-        const updateInterval = setInterval(() => {
-            if (!this.testInProgress) {
-                clearInterval(updateInterval);
-                return;
-            }
-
-            // Update progress
-            totalTime += 100;
-            const progress = (totalTime / totalDuration) * 100;
-            document.getElementById('test-progress').style.width = progress + '%';
-            
-            // Update phase
-            const phaseTime = totalTime % 6666; // ~6.7 seconds per phase
-            if (phaseTime < 100 && totalTime > 100) {
-                currentPhaseIndex = Math.min(currentPhaseIndex + 1, phases.length - 1);
-            }
-            
-            document.getElementById('test-status').textContent = 
-                `Phase: ${phases[currentPhaseIndex]} (${Math.floor(totalTime/1000)}s)`;
-
-            // Generate and add live data
-            const amplitude = currentPhaseIndex % 2 === 0 ? 0.8 + Math.random() * 0.4 : 0.2;
-            const signal = amplitude * Math.sin(2 * Math.PI * 50 * totalTime / 1000) + 
-                          (Math.random() - 0.5) * 0.2;
-
-            // Update live chart
-            if (this.liveChart) {
-                const data = this.liveChart.data;
-                data.labels.push(totalTime);
-                data.datasets[0].data.push(signal);
-                
-                // Keep only last 1000 points
-                if (data.labels.length > 1000) {
-                    data.labels.shift();
-                    data.datasets[0].data.shift();
-                }
-                
-                this.liveChart.update('none');
-            }
-
-            // Complete test
-            if (totalTime >= totalDuration) {
-                clearInterval(updateInterval);
-                this.completeTest();
-            }
-        }, 100);
-    }
 
     completeTest() {
         this.testInProgress = false;
@@ -1740,3 +1769,29 @@ def process_emg_signal(data, fs=1000):
 document.addEventListener('DOMContentLoaded', () => {
     new EMGDashboard();
 });
+
+// =================== 6.  OPTIONAL – PYODIDE BRIDGE  ===================
+//  (Add after the class so Python scripts keep working)
+window.EMGBridge = {
+    start_stream: (cb) => {
+        if (!dashboard.emgCharacteristic) return;
+        const handler = (e) => {
+            const arr = new Int16Array(e.target.value.buffer);
+            cb(arr);
+        };
+        dashboard.emgCharacteristic.addEventListener(
+            'characteristicvaluechanged', handler);
+        dashboard.emgCharacteristic.startNotifications();
+        window._pyHandler = handler;
+    },
+    stop_stream: () => {
+        if (dashboard.emgCharacteristic && window._pyHandler) {
+            dashboard.emgCharacteristic.stopNotifications();
+            dashboard.emgCharacteristic.removeEventListener(
+                'characteristicvaluechanged', window._pyHandler);
+        }
+    },
+    connect_device: async (id) => true,      // handled by UI
+    get_current_data: () => dashboard.emgBuffer.slice()
+};
+
