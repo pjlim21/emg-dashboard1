@@ -1,6 +1,1603 @@
 // EMG Test Analysis Dashboard Application
 class EMGDashboard {
+    constructor() {// EMG Test Analysis Dashboard Application
+class EMGDashboard {
     constructor() {
+        this.currentView = 'dashboard';
+        this.sessions = [];
+        this.scripts = [];
+        this.filteredSessions = [];
+        this.selectedMuscle = null;
+        this.currentSession = null;
+        this.charts = {};
+        this.testInProgress = false;
+        this.liveChart = null;
+        this.currentScript = null;
+        
+        // BLE handles
+        this.bluetoothDevice = null;
+        this.gattServer = null;
+        this.emgCharacteristic = null;
+        this.emgBuffer = [];
+        
+        // UUIDs for BLE EMG boards
+        this.EMG_SERVICE_UUID = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
+        this.EMG_CHARACTERISTIC_UUID = '8c24159c-66a0-4340-8b55-465047ce37ce';
+        this.EMG_COMMAND_CHARACTERISTIC_UUID = this.EMG_CHARACTERISTIC_UUID;
+        
+        // Modal callback
+        this.modalConfirmCallback = null;
+        
+        // Test execution state
+        this.testTimer = null;
+        this.testStartTime = null;
+        
+        // Sample data from application_data
+        this.sampleData = {
+            sessions: [
+                {
+                    id: "emg-001",
+                    timestamp: "2025-06-20T14:30:00Z",
+                    subjectId: "SUB001",
+                    muscleGroup: "Bicep",
+                    bodyPlacement: "Right arm, bicep brachii muscle belly, 2cm superior to elbow joint",
+                    electrodeType: "Gel",
+                    electrodeConfig: "Bipolar surface electrodes, 2cm inter-electrode distance, reference on wrist",
+                    testPhases: {
+                        mvc1: {
+                            name: "MVC 1",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 0.8, 50),
+                            rms: 0.847,
+                            mav: 0.723,
+                            snr: 24.5,
+                            maxAmplitude: 2.1
+                        },
+                        mvc2: {
+                            name: "MVC 2",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 0.8, 45),
+                            rms: 0.839,
+                            mav: 0.718,
+                            snr: 23.8,
+                            maxAmplitude: 2.05
+                        },
+                        submaximal: {
+                            name: "Sub-maximal (50%)",
+                            duration: 10000,
+                            rawData: this.generateSampleEMGData(10000, 0.4, 30),
+                            rms: 0.423,
+                            mav: 0.361,
+                            snr: 18.2,
+                            maxAmplitude: 1.05
+                        },
+                        walking: {
+                            name: "Walking",
+                            duration: 15000,
+                            rawData: this.generateSampleEMGData(15000, 0.2, 20),
+                            rms: 0.234,
+                            mav: 0.198,
+                            snr: 15.1,
+                            maxAmplitude: 0.78
+                        }
+                    }
+                },
+                {
+                    id: "emg-002",
+                    timestamp: "2025-06-21T09:15:00Z",
+                    subjectId: "SUB002",
+                    muscleGroup: "Quadriceps",
+                    bodyPlacement: "Right thigh, vastus lateralis, middle of muscle belly",
+                    electrodeType: "Dry",
+                    electrodeConfig: "Dry surface electrodes, 3cm spacing, ground electrode on patella",
+                    testPhases: {
+                        mvc1: {
+                            name: "MVC 1",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 1.2, 60),
+                            rms: 1.234,
+                            mav: 1.056,
+                            snr: 22.1,
+                            maxAmplitude: 3.2
+                        },
+                        mvc2: {
+                            name: "MVC 2",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 1.1, 55),
+                            rms: 1.198,
+                            mav: 1.034,
+                            snr: 21.8,
+                            maxAmplitude: 3.15
+                        },
+                        submaximal: {
+                            name: "Sub-maximal (50%)",
+                            duration: 10000,
+                            rawData: this.generateSampleEMGData(10000, 0.6, 35),
+                            rms: 0.617,
+                            mav: 0.528,
+                            snr: 16.9,
+                            maxAmplitude: 1.58
+                        }
+                    }
+                },
+                {
+                    id: "emg-003",
+                    timestamp: "2025-06-22T11:45:00Z",
+                    subjectId: "SUB001",
+                    muscleGroup: "Hamstring",
+                    bodyPlacement: "Left thigh, biceps femoris, proximal third of muscle",
+                    electrodeType: "Surface Array",
+                    electrodeConfig: "4-electrode linear array, 1cm spacing, reference on fibular head",
+                    testPhases: {
+                        mvc1: {
+                            name: "MVC 1",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 0.9, 55),
+                            rms: 0.956,
+                            mav: 0.821,
+                            snr: 26.3,
+                            maxAmplitude: 2.45
+                        },
+                        mvc2: {
+                            name: "MVC 2",
+                            duration: 5000,
+                            rawData: this.generateSampleEMGData(5000, 0.9, 50),
+                            rms: 0.942,
+                            mav: 0.809,
+                            snr: 25.7,
+                            maxAmplitude: 2.38
+                        },
+                        walking: {
+                            name: "Walking",
+                            duration: 15000,
+                            rawData: this.generateSampleEMGData(15000, 0.25, 25),
+                            rms: 0.287,
+                            mav: 0.245,
+                            snr: 14.8,
+                            maxAmplitude: 0.92
+                        }
+                    }
+                }
+            ],
+            muscleGroups: ["Bicep", "Tricep", "Hamstring", "Quadriceps", "Deltoid", "Pectoralis Major", "Latissimus Dorsi", "Gastrocnemius"],
+            electrodeTypes: ["Gel", "Dry", "Microneedle", "Surface Array"]
+        };
+
+        // Sample Python Scripts
+        this.sampleScripts = [
+            {
+                name: 'emg_basic_acquisition.py',
+                size: '3.2 KB',
+                content: `import pyodide
+from js import EMGBridge
+import numpy as np
+import time
+
+# EMG Data Acquisition Script
+# For use with Web Bluetooth EMG devices
+
+class EMGAcquisition:
+    def __init__(self):
+        self.sampling_rate = 1000  # Hz
+        self.is_recording = False
+        self.data_buffer = []
+    
+    def connect_device(self, device_id):
+        print("Connecting to device:", device_id)
+        return EMGBridge.connect_device(device_id)
+    
+    def start_recording(self):
+        print("Starting EMG recording...")
+        self.is_recording = True
+        self.data_buffer = []
+        # This would call the JavaScript bridge function
+        EMGBridge.start_stream(self.on_data_received)
+    
+    def on_data_received(self, data):
+        # Process incoming EMG data from JS bridge
+        self.data_buffer.append(data)
+    
+    def stop_recording(self):
+        print("Stopping EMG recording...")
+        self.is_recording = False
+        EMGBridge.stop_stream()
+    
+    def analyze_data(self):
+        if len(self.data_buffer) == 0:
+            print("No data to analyze")
+            return {}
+        
+        # Convert to numpy array for analysis
+        data_array = np.array(self.data_buffer)
+        
+        # Calculate basic metrics
+        rms = np.sqrt(np.mean(np.square(data_array)))
+        mav = np.mean(np.abs(data_array))
+        max_amp = np.max(np.abs(data_array))
+        
+        # Calculate SNR (simplified)
+        signal = np.mean(data_array)
+        noise = np.std(data_array)
+        snr = 20 * np.log10(abs(signal/noise)) if noise > 0 else 0
+        
+        results = {
+            "rms": float(rms),
+            "mav": float(mav), 
+            "maxAmplitude": float(max_amp),
+            "snr": float(snr),
+            "rawData": self.data_buffer
+        }
+        
+        return results
+
+# Example usage (would be executed by the dashboard)
+emg = EMGAcquisition()
+`
+            },
+            {
+                name: 'dynamic_contraction_test.py',
+                size: '4.5 KB',
+                content: `import pyodide
+import asyncio
+from js import EMGBridge, displayInstructions, updateProgress
+import numpy as np
+import time
+
+# Dynamic Contraction Test Protocol
+# For EMG Dashboard Web Application
+
+class DynamicContractionTest:
+    def __init__(self):
+        self.emg_data = {}
+        self.sampling_rate = 1000  # Hz
+        self.is_running = False
+        
+    def connect_device(self, device_id):
+        displayInstructions("Connecting to device...")
+        success = EMGBridge.connect_device(device_id)
+        if success:
+            displayInstructions("Device connected successfully")
+            return True
+        else:
+            displayInstructions("Failed to connect to device")
+            return False
+    
+    async def run_test(self):
+        """Run the complete dynamic contraction protocol"""
+        self.is_running = True
+        self.emg_data = {
+            "mvc1": {},
+            "rest1": {},
+            "mvc2": {},
+            "rest2": {},
+            "submaximal": {},
+            "walking": {}
+        }
+        
+        # First MVC
+        if not await self._run_mvc_phase("mvc1", "Perform maximum voluntary contraction"):
+            return False
+            
+        # Rest period
+        if not await self._run_rest_phase("rest1", "Rest for 30 seconds"):
+            return False
+            
+        # Second MVC
+        if not await self._run_mvc_phase("mvc2", "Perform second maximum voluntary contraction"):
+            return False
+            
+        # Rest period
+        if not await self._run_rest_phase("rest2", "Rest for 30 seconds"):
+            return False
+            
+        # 50% Sub-maximal contraction
+        if not await self._run_submaximal_phase("submaximal", "Perform 50% of maximum contraction"):
+            return False
+            
+        # Walking test
+        if not await self._run_walking_phase("walking", "Walk at a comfortable pace"):
+            return False
+        
+        displayInstructions("Test complete! Processing results...")
+        self._process_results()
+        return True
+    
+    async def _run_mvc_phase(self, phase_id, instruction, duration=5):
+        """Run a maximum voluntary contraction phase"""
+        displayInstructions(f"{instruction} for {duration} seconds")
+        EMGBridge.start_stream()
+        
+        # Simulated data collection for the specified duration
+        start_time = time.time()
+        while time.time() - start_time < duration and self.is_running:
+            # Update progress (0-100%)
+            progress = ((time.time() - start_time) / duration) * 100
+            updateProgress(progress)
+            time.sleep(0.1)
+        
+        # If test was canceled
+        if not self.is_running:
+            EMGBridge.stop_stream()
+            return False
+        
+        # Get data from bridge
+        self.emg_data[phase_id]["rawData"] = EMGBridge.get_current_data()
+        EMGBridge.stop_stream()
+        return True
+    
+    def stop_test(self):
+        """Stop the current test"""
+        self.is_running = False
+        EMGBridge.stop_stream()
+        displayInstructions("Test stopped")
+
+# Example usage
+test = DynamicContractionTest()
+`
+            },
+            {
+                name: 'emg_signal_processing.py',
+                size: '2.8 KB',
+                content: `import numpy as np
+from scipy.signal import butter, filtfilt, iirnotch
+
+# EMG Signal Processing Functions
+# For EMG Dashboard Web Application
+
+def butter_bandpass(lowcut, highcut, fs, order=4):
+    """Design a butterworth bandpass filter"""
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(order, [low, high], btype='band')
+    return b, a
+
+def apply_bandpass_filter(data, lowcut=20, highcut=450, fs=1000, order=4):
+    """Apply a bandpass filter to EMG data"""
+    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
+    return filtfilt(b, a, data)
+
+def calculate_rms(data, window_size=100):
+    """Calculate RMS value with sliding window"""
+    return np.sqrt(np.convolve(np.square(data), np.ones(window_size)/window_size, mode='same'))
+
+def process_emg_signal(data, fs=1000):
+    """Complete EMG signal processing pipeline"""
+    # Apply filters
+    filtered_data = apply_bandpass_filter(data, fs=fs)
+    
+    # Calculate metrics
+    rms_values = calculate_rms(filtered_data)
+    
+    return {
+        'filtered_data': filtered_data,
+        'rms_values': rms_values,
+        'max_amplitude': np.max(np.abs(filtered_data))
+    }
+`
+            }
+        ];
+
+        this.init();
+    }
+
+    generateSampleEMGData(length, amplitude, frequency) {
+        const data = [];
+        const sampleRate = 1000; // 1000 Hz
+        const noiseLevel = amplitude * 0.1;
+
+        for (let i = 0; i < length; i++) {
+            const time = i / sampleRate;
+            // Generate EMG-like signal with multiple frequency components and noise
+            let signal = 0;
+            signal += amplitude * Math.sin(2 * Math.PI * frequency * time);
+            signal += amplitude * 0.3 * Math.sin(2 * Math.PI * frequency * 2 * time);
+            signal += amplitude * 0.1 * Math.sin(2 * Math.PI * frequency * 3 * time);
+            
+            // Add random noise
+            signal += (Math.random() - 0.5) * noiseLevel;
+            
+            // Add some random spikes to simulate muscle activity
+            if (Math.random() < 0.01) {
+                signal += (Math.random() - 0.5) * amplitude * 0.5;
+            }
+            
+            data.push(signal);
+        }
+        return data;
+    }
+
+    init() {
+        this.loadSampleData();
+        this.setupEventListeners();
+        this.populateFormOptions();
+        this.renderDashboard();
+        this.updateBodyMap();
+        this.populateScriptsList();
+        this.setupEMGBridge();
+        this.setupGlobalFunctions();
+    }
+
+    loadSampleData() {
+        const stored = this.loadStoredSessions();
+        this.sessions = stored ?? [...this.sampleData.sessions];
+        this.filteredSessions = [...this.sessions];
+        this.scripts = [...this.sampleScripts];
+    }
+
+    loadStoredSessions() {
+        try {
+            const stored = localStorage.getItem('emg-sessions');
+            return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+            console.warn('Failed to load stored sessions:', e);
+            return null;
+        }
+    }
+
+    saveSessionsToStorage() {
+        try {
+            localStorage.setItem('emg-sessions', JSON.stringify(this.sessions));
+        } catch (e) {
+            console.warn('Failed to save sessions to storage:', e);
+        }
+    }
+
+    setupEMGBridge() {
+        // Create EMGBridge object for Python scripts
+        window.EMGBridge = {
+            connect_device: (deviceId) => {
+                console.log('EMGBridge: Connecting to device', deviceId);
+                // Simulate connection success
+                return true;
+            },
+            start_stream: (callback) => {
+                console.log('EMGBridge: Starting data stream');
+                // Simulate starting data stream
+            },
+            stop_stream: () => {
+                console.log('EMGBridge: Stopping data stream');
+                // Simulate stopping data stream
+            },
+            get_current_data: () => {
+                console.log('EMGBridge: Getting current data');
+                // Return simulated EMG data
+                return this.generateSampleEMGData(1000, 0.5, 30);
+            }
+        };
+    }
+
+    setupGlobalFunctions() {
+        // Global functions that Python scripts can call
+        window.displayInstructions = (message) => {
+            this.displayInstructions(message);
+        };
+
+        window.updateProgress = (progress) => {
+            this.updateProgress(progress);
+        };
+    }
+
+    displayInstructions(message) {
+        const instructionElement = document.getElementById('current-instruction');
+        if (instructionElement) {
+            instructionElement.textContent = message;
+            // Also show in test monitoring section
+            const monitoringSection = document.querySelector('.test-monitoring');
+            if (monitoringSection && !monitoringSection.classList.contains('hidden')) {
+                monitoringSection.style.display = 'block';
+            }
+        }
+        console.log('Test Instruction:', message);
+    }
+
+    updateProgress(progress) {
+        const progressBar = document.querySelector('.progress-fill');
+        if (progressBar) {
+            progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+        }
+        
+        const progressText = document.querySelector('.test-progress span');
+        if (progressText) {
+            progressText.textContent = `${Math.round(progress)}%`;
+        }
+        
+        console.log('Test Progress:', progress + '%');
+    }
+
+    setupEventListeners() {
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                const view = item.dataset.view;
+                this.navigateTo(view);
+            });
+        });
+
+        // Dashboard search and filters
+        const searchInput = document.getElementById('search-sessions');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                this.filterSessions();
+            });
+        }
+
+        const filterMuscle = document.getElementById('filter-muscle');
+        if (filterMuscle) {
+            filterMuscle.addEventListener('change', () => {
+                this.filterSessions();
+            });
+        }
+
+        const filterElectrode = document.getElementById('filter-electrode');
+        if (filterElectrode) {
+            filterElectrode.addEventListener('change', () => {
+                this.filterSessions();
+            });
+        }
+
+        // New test form
+        const newTestForm = document.getElementById('new-test-form');
+        if (newTestForm) {
+            newTestForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.handleNewTestSubmit();
+            });
+        }
+
+        const scriptFile = document.getElementById('script-file');
+        if (scriptFile) {
+            scriptFile.addEventListener('change', (e) => {
+                this.handleScriptUpload(e.target.files[0]);
+            });
+        }
+
+        const scriptSelect = document.getElementById('script-select');
+        if (scriptSelect) {
+            scriptSelect.addEventListener('change', () => {
+                this.previewSelectedScript();
+            });
+        }
+
+        // Device controls
+        const scanDevices = document.getElementById('scan-devices');
+        if (scanDevices) {
+            scanDevices.addEventListener('click', () => {
+                this.scanForDevices();
+            });
+        }
+
+        const connectDevice = document.getElementById('connect-device');
+        if (connectDevice) {
+            connectDevice.addEventListener('click', () => {
+                this.connectDevice();
+            });
+        }
+
+        // Test controls
+        const startTest = document.getElementById('start-test');
+        if (startTest) {
+            startTest.addEventListener('click', () => {
+                this.startTest();
+            });
+        }
+
+        const pauseTest = document.getElementById('pause-test');
+        if (pauseTest) {
+            pauseTest.addEventListener('click', () => {
+                this.pauseTest();
+            });
+        }
+
+        const stopTest = document.getElementById('stop-test');
+        if (stopTest) {
+            stopTest.addEventListener('click', () => {
+                this.stopTest();
+            });
+        }
+
+        // Session detail navigation
+        const backToDashboard = document.getElementById('back-to-dashboard');
+        if (backToDashboard) {
+            backToDashboard.addEventListener('click', () => {
+                this.navigateTo('dashboard');
+            });
+        }
+
+        const exportSession = document.getElementById('export-session');
+        if (exportSession) {
+            exportSession.addEventListener('click', () => {
+                this.exportSession();
+            });
+        }
+
+        const deleteSession = document.getElementById('delete-session');
+        if (deleteSession) {
+            deleteSession.addEventListener('click', () => {
+                this.showDeleteConfirmation();
+            });
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.switchTab(e.target.dataset.tab);
+            });
+        });
+
+        // Body map interactions
+        document.querySelectorAll('.muscle-region').forEach(region => {
+            region.addEventListener('click', (e) => {
+                const muscle = e.target.dataset.muscle;
+                this.selectMuscle(muscle);
+            });
+        });
+
+        // Body map legend items
+        const muscleLegend = document.getElementById('muscle-legend');
+        if (muscleLegend) {
+            muscleLegend.addEventListener('click', (e) => {
+                const legendItem = e.target.closest('.legend-item');
+                if (legendItem) {
+                    const muscle = legendItem.dataset.muscle;
+                    if (muscle) {
+                        this.selectMuscle(muscle);
+                    }
+                }
+            });
+        }
+
+        // Theme toggle
+        const themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                this.toggleTheme();
+            });
+        }
+
+        // Modal controls
+        const modalClose = document.getElementById('modal-close');
+        if (modalClose) {
+            modalClose.addEventListener('click', () => {
+                this.hideModal();
+            });
+        }
+
+        const modalCancel = document.getElementById('modal-cancel');
+        if (modalCancel) {
+            modalCancel.addEventListener('click', () => {
+                this.hideModal();
+            });
+        }
+
+        const modalConfirm = document.getElementById('modal-confirm');
+        if (modalConfirm) {
+            modalConfirm.addEventListener('click', () => {
+                this.handleModalConfirm();
+            });
+        }
+
+        // Export all
+        const exportAll = document.getElementById('export-all');
+        if (exportAll) {
+            exportAll.addEventListener('click', () => {
+                this.exportAllSessions();
+            });
+        }
+
+        // Scripts management
+        const scriptManagerFile = document.getElementById('script-manager-file');
+        if (scriptManagerFile) {
+            scriptManagerFile.addEventListener('change', (e) => {
+                this.handleScriptManagerUpload(e.target.files);
+            });
+        }
+
+        const closeEditor = document.getElementById('close-editor');
+        if (closeEditor) {
+            closeEditor.addEventListener('click', () => {
+                const editor = document.getElementById('script-editor');
+                if (editor) {
+                    editor.style.display = 'none';
+                }
+            });
+        }
+
+        const saveScript = document.getElementById('save-script');
+        if (saveScript) {
+            saveScript.addEventListener('click', () => {
+                this.saveCurrentScript();
+            });
+        }
+
+        const testScript = document.getElementById('test-script');
+        if (testScript) {
+            testScript.addEventListener('click', () => {
+                this.testCurrentScript();
+            });
+        }
+    }
+
+    populateFormOptions() {
+        const muscleSelect = document.getElementById('muscle-group');
+        const electrodeSelect = document.getElementById('electrode-type');
+        const filterMuscleSelect = document.getElementById('filter-muscle');
+        const filterElectrodeSelect = document.getElementById('filter-electrode');
+        const scriptSelect = document.getElementById('script-select');
+
+        // Clear existing options first
+        if (muscleSelect) muscleSelect.innerHTML = '<option value="">Select Muscle Group</option>';
+        if (electrodeSelect) electrodeSelect.innerHTML = '<option value="">Select Electrode Type</option>';
+        if (filterMuscleSelect) filterMuscleSelect.innerHTML = '<option value="">All Muscle Groups</option>';
+        if (filterElectrodeSelect) filterElectrodeSelect.innerHTML = '<option value="">All Electrode Types</option>';
+
+        // Populate muscle groups
+        this.sampleData.muscleGroups.forEach(muscle => {
+            const opt = document.createElement('option');
+            opt.value = muscle;
+            opt.textContent = muscle;
+            if (muscleSelect) muscleSelect.appendChild(opt.cloneNode(true));
+            if (filterMuscleSelect) filterMuscleSelect.appendChild(opt.cloneNode(true));
+        });
+
+        // Populate electrode types
+        this.sampleData.electrodeTypes.forEach(type => {
+            const opt = document.createElement('option');
+            opt.value = type;
+            opt.textContent = type;
+            if (electrodeSelect) electrodeSelect.appendChild(opt.cloneNode(true));
+            if (filterElectrodeSelect) filterElectrodeSelect.appendChild(opt.cloneNode(true));
+        });
+
+        // Populate scripts
+        if (scriptSelect) {
+            scriptSelect.innerHTML = '<option value="">-- choose script --</option>';
+            this.scripts.forEach((s, idx) => {
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = s.name;
+                scriptSelect.appendChild(opt);
+            });
+        }
+
+        this.previewSelectedScript();
+    }
+
+    navigateTo(view) {
+        // Update navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.view === view);
+        });
+
+        // Update views
+        document.querySelectorAll('.view').forEach(viewEl => {
+            viewEl.classList.toggle('active', viewEl.id === `${view}-view`);
+        });
+
+        // Update page title and breadcrumb
+        const titles = {
+            'dashboard': 'Dashboard',
+            'new-test': 'New Test',
+            'comparison': 'Compare Tests',
+            'body-map': 'Body Map',
+            'scripts': 'Python Scripts',
+            'session-detail': 'Session Details'
+        };
+
+        const pageTitle = document.getElementById('page-title');
+        const breadcrumb = document.getElementById('breadcrumb');
+        
+        if (pageTitle) pageTitle.textContent = titles[view] || 'Dashboard';
+        if (breadcrumb) breadcrumb.innerHTML = `Home > ${titles[view] || 'Dashboard'}`;
+
+        this.currentView = view;
+
+        // View-specific initialization
+        if (view === 'comparison') {
+            this.renderComparisonView();
+        } else if (view === 'body-map') {
+            this.updateBodyMap();
+        } else if (view === 'scripts') {
+            this.populateScriptsList();
+        }
+    }
+
+    filterSessions() {
+        const searchInput = document.getElementById('search-sessions');
+        const muscleFilter = document.getElementById('filter-muscle');
+        const electrodeFilter = document.getElementById('filter-electrode');
+        
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const muscleFilterValue = muscleFilter ? muscleFilter.value : '';
+        const electrodeFilterValue = electrodeFilter ? electrodeFilter.value : '';
+
+        this.filteredSessions = this.sessions.filter(session => {
+            const matchesSearch = !searchTerm || 
+                session.subjectId.toLowerCase().includes(searchTerm) ||
+                session.muscleGroup.toLowerCase().includes(searchTerm);
+            
+            const matchesMuscle = !muscleFilterValue || session.muscleGroup === muscleFilterValue;
+            const matchesElectrode = !electrodeFilterValue || session.electrodeType === electrodeFilterValue;
+            
+            return matchesSearch && matchesMuscle && matchesElectrode;
+        });
+
+        this.renderDashboard();
+    }
+
+    renderDashboard() {
+        const grid = document.getElementById('sessions-grid');
+        if (!grid) return;
+        
+        grid.innerHTML = '';
+
+        if (this.filteredSessions.length === 0) {
+            grid.innerHTML = '<div class="text-center text-muted">No sessions match your search criteria</div>';
+            return;
+        }
+
+        this.filteredSessions.forEach(session => {
+            const card = document.createElement('div');
+            card.className = 'session-card';
+            card.onclick = () => this.viewSession(session.id);
+
+            card.innerHTML = `
+                <div class="session-card-header">
+                    <div class="session-id">${session.id}</div>
+                    <div class="session-date">${new Date(session.timestamp).toLocaleDateString()}</div>
+                </div>
+                <div class="session-info">
+                    <div class="session-info-item">
+                        <div class="session-info-label">Subject</div>
+                        <div class="session-info-value">${session.subjectId}</div>
+                    </div>
+                    <div class="session-info-item">
+                        <div class="session-info-label">Muscle Group</div>
+                        <div class="session-info-value">${session.muscleGroup}</div>
+                    </div>
+                    <div class="session-info-item">
+                        <div class="session-info-label">Electrode Type</div>
+                        <div class="session-info-value">${session.electrodeType}</div>
+                    </div>
+                    <div class="session-info-item">
+                        <div class="session-info-label">Test Phases</div>
+                        <div class="session-info-value">${Object.keys(session.testPhases).length}</div>
+                    </div>
+                </div>
+                <div class="session-metrics">
+                    ${Object.entries(session.testPhases).map(([key, phase]) => 
+                        `<div class="metric-chip">${phase.name}</div>`
+                    ).join('')}
+                </div>
+            `;
+
+            grid.appendChild(card);
+        });
+    }
+
+    handleNewTestSubmit() {
+        const form = document.getElementById('new-test-form');
+        if (!form) return;
+
+        const formData = new FormData(form);
+        const testData = {
+            id: `emg-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            subjectId: formData.get('subject-id'),
+            muscleGroup: formData.get('muscle-group'),
+            bodyPlacement: formData.get('body-placement'),
+            electrodeType: formData.get('electrode-type'),
+            electrodeConfig: formData.get('electrode-config'),
+            testPhases: {}
+        };
+
+        // Validate required fields
+        if (!testData.subjectId || !testData.muscleGroup || !testData.electrodeType) {
+            this.showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        // Save the test configuration
+        this.currentTestData = testData;
+        
+        // Show success message
+        this.showToast('Test configuration saved. Ready to start test.', 'success');
+        
+        // Enable test controls
+        this.enableTestControls();
+    }
+
+    enableTestControls() {
+        const startBtn = document.getElementById('start-test');
+        const monitoringSection = document.querySelector('.test-monitoring');
+        
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.classList.remove('btn--secondary');
+            startBtn.classList.add('btn--primary');
+        }
+        
+        if (monitoringSection) {
+            monitoringSection.style.display = 'block';
+        }
+        
+        this.displayInstructions('Test ready. Click "Start Test" to begin.');
+    }
+
+    previewSelectedScript() {
+        const scriptSelect = document.getElementById('script-select');
+        const scriptPreview = document.getElementById('script-preview');
+        
+        if (!scriptSelect || !scriptPreview) return;
+
+        const selectedIndex = scriptSelect.value;
+        
+        if (selectedIndex && this.scripts[selectedIndex]) {
+            const script = this.scripts[selectedIndex];
+            scriptPreview.innerHTML = `
+                <h4>Script: ${script.name}</h4>
+                <pre><code>${script.content}</code></pre>
+            `;
+            this.currentScript = script;
+        } else {
+            scriptPreview.innerHTML = '<p class="text-muted">Select a script to preview</p>';
+            this.currentScript = null;
+        }
+    }
+
+    handleScriptUpload(file) {
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const content = e.target.result;
+            const script = {
+                name: file.name,
+                size: `${(file.size / 1024).toFixed(1)} KB`,
+                content: content
+            };
+            
+            this.scripts.push(script);
+            this.populateFormOptions();
+            this.showToast(`Script "${file.name}" uploaded successfully`, 'success');
+        };
+        reader.readAsText(file);
+    }
+
+    scanForDevices() {
+        const devicesList = document.getElementById('devices-list');
+        const scanBtn = document.getElementById('scan-devices');
+        
+        if (scanBtn) {
+            scanBtn.textContent = 'Scanning...';
+            scanBtn.disabled = true;
+        }
+        
+        this.displayInstructions('Scanning for EMG devices...');
+
+        // Simulate device scanning
+        setTimeout(() => {
+            if (devicesList) {
+                devicesList.innerHTML = `
+                    <div class="device-item">
+                        <strong>EMG Sensor #1</strong>
+                        <span class="text-muted">Signal: Strong</span>
+                        <button class="btn btn--sm btn--primary" onclick="dashboard.selectDevice('emg-001')">Select</button>
+                    </div>
+                    <div class="device-item">
+                        <strong>EMG Sensor #2</strong>
+                        <span class="text-muted">Signal: Medium</span>
+                        <button class="btn btn--sm btn--primary" onclick="dashboard.selectDevice('emg-002')">Select</button>
+                    </div>
+                `;
+            }
+            
+            if (scanBtn) {
+                scanBtn.textContent = 'Scan for Devices';
+                scanBtn.disabled = false;
+            }
+            
+            this.displayInstructions('Found 2 EMG devices. Select one to connect.');
+        }, 2000);
+    }
+
+    selectDevice(deviceId) {
+        this.selectedDevice = deviceId;
+        this.displayInstructions(`Selected device: ${deviceId}. Click "Connect" to establish connection.`);
+        
+        const connectBtn = document.getElementById('connect-device');
+        if (connectBtn) {
+            connectBtn.disabled = false;
+            connectBtn.classList.remove('btn--secondary');
+            connectBtn.classList.add('btn--primary');
+        }
+    }
+
+    connectDevice() {
+        if (!this.selectedDevice) {
+            this.showToast('Please select a device first', 'warning');
+            return;
+        }
+
+        const connectBtn = document.getElementById('connect-device');
+        if (connectBtn) {
+            connectBtn.textContent = 'Connecting...';
+            connectBtn.disabled = true;
+        }
+
+        this.displayInstructions('Connecting to EMG device...');
+
+        // Simulate connection
+        setTimeout(() => {
+            this.isDeviceConnected = true;
+            
+            if (connectBtn) {
+                connectBtn.textContent = 'Connected';
+                connectBtn.classList.remove('btn--primary');
+                connectBtn.classList.add('btn--success');
+            }
+            
+            this.displayInstructions(`Connected to ${this.selectedDevice}. Ready to start test.`);
+            this.showToast('Device connected successfully', 'success');
+            
+            // Enable start test button
+            const startBtn = document.getElementById('start-test');
+            if (startBtn) {
+                startBtn.disabled = false;
+            }
+        }, 3000);
+    }
+
+    startTest() {
+        if (!this.isDeviceConnected) {
+            this.showToast('Please connect to a device first', 'warning');
+            return;
+        }
+
+        if (!this.currentScript) {
+            this.showToast('Please select a test script', 'warning');
+            return;
+        }
+
+        this.testInProgress = true;
+        this.testStartTime = Date.now();
+        
+        // Update UI
+        const startBtn = document.getElementById('start-test');
+        const pauseBtn = document.getElementById('pause-test');
+        const stopBtn = document.getElementById('stop-test');
+        
+        if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Running...';
+        }
+        if (pauseBtn) pauseBtn.disabled = false;
+        if (stopBtn) stopBtn.disabled = false;
+
+        this.displayInstructions('Test started. Follow the instructions for each phase.');
+        this.showToast('Test started', 'success');
+
+        // Simulate test phases
+        this.runTestPhases();
+    }
+
+    runTestPhases() {
+        const phases = [
+            { name: 'Preparation', duration: 3000, instruction: 'Prepare for test. Relax muscles.' },
+            { name: 'MVC 1', duration: 5000, instruction: 'Perform maximum voluntary contraction for 5 seconds.' },
+            { name: 'Rest', duration: 10000, instruction: 'Rest for 10 seconds.' },
+            { name: 'MVC 2', duration: 5000, instruction: 'Perform second maximum voluntary contraction for 5 seconds.' },
+            { name: 'Submaximal', duration: 8000, instruction: 'Perform 50% submaximal contraction for 8 seconds.' }
+        ];
+
+        let currentPhaseIndex = 0;
+        
+        const runNextPhase = () => {
+            if (currentPhaseIndex >= phases.length || !this.testInProgress) {
+                this.completeTest();
+                return;
+            }
+
+            const phase = phases[currentPhaseIndex];
+            this.displayInstructions(phase.instruction);
+            
+            let phaseProgress = 0;
+            const phaseInterval = setInterval(() => {
+                if (!this.testInProgress) {
+                    clearInterval(phaseInterval);
+                    return;
+                }
+                
+                phaseProgress += 100;
+                const progress = (phaseProgress / phase.duration) * 100;
+                this.updateProgress(Math.min(100, progress));
+                
+                if (phaseProgress >= phase.duration) {
+                    clearInterval(phaseInterval);
+                    currentPhaseIndex++;
+                    setTimeout(runNextPhase, 1000);
+                }
+            }, 100);
+        };
+
+        runNextPhase();
+    }
+
+    pauseTest() {
+        this.testInProgress = false;
+        this.displayInstructions('Test paused. Click "Start Test" to resume.');
+        
+        const startBtn = document.getElementById('start-test');
+        const pauseBtn = document.getElementById('pause-test');
+        
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Resume Test';
+        }
+        if (pauseBtn) pauseBtn.disabled = true;
+        
+        this.showToast('Test paused', 'warning');
+    }
+
+    stopTest() {
+        this.testInProgress = false;
+        
+        // Reset UI
+        const startBtn = document.getElementById('start-test');
+        const pauseBtn = document.getElementById('pause-test');
+        const stopBtn = document.getElementById('stop-test');
+        
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start Test';
+        }
+        if (pauseBtn) pauseBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = true;
+        
+        this.updateProgress(0);
+        this.displayInstructions('Test stopped. Configure new test parameters if needed.');
+        this.showToast('Test stopped', 'info');
+    }
+
+    completeTest() {
+        this.testInProgress = false;
+        
+        // Generate test results
+        const testResult = {
+            ...this.currentTestData,
+            completedAt: new Date().toISOString(),
+            duration: Date.now() - this.testStartTime,
+            testPhases: {
+                mvc1: {
+                    name: 'MVC 1',
+                    duration: 5000,
+                    rawData: this.generateSampleEMGData(5000, 0.8, 50),
+                    rms: 0.847,
+                    mav: 0.723,
+                    snr: 24.5,
+                    maxAmplitude: 2.1
+                },
+                mvc2: {
+                    name: 'MVC 2',
+                    duration: 5000,
+                    rawData: this.generateSampleEMGData(5000, 0.8, 45),
+                    rms: 0.839,
+                    mav: 0.718,
+                    snr: 23.8,
+                    maxAmplitude: 2.05
+                },
+                submaximal: {
+                    name: 'Sub-maximal (50%)',
+                    duration: 8000,
+                    rawData: this.generateSampleEMGData(8000, 0.4, 30),
+                    rms: 0.423,
+                    mav: 0.361,
+                    snr: 18.2,
+                    maxAmplitude: 1.05
+                }
+            }
+        };
+        
+        // Add to sessions
+        this.sessions.unshift(testResult);
+        this.filteredSessions = [...this.sessions];
+        this.saveSessionsToStorage();
+        
+        // Reset UI
+        const startBtn = document.getElementById('start-test');
+        const pauseBtn = document.getElementById('pause-test');
+        const stopBtn = document.getElementById('stop-test');
+        
+        if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.textContent = 'Start Test';
+        }
+        if (pauseBtn) pauseBtn.disabled = true;
+        if (stopBtn) stopBtn.disabled = true;
+        
+        this.updateProgress(100);
+        this.displayInstructions('Test completed successfully! Results have been saved.');
+        this.showToast('Test completed and saved', 'success');
+        
+        // Offer to view results
+        setTimeout(() => {
+            if (confirm('Test completed! Would you like to view the results?')) {
+                this.viewSession(testResult.id);
+            }
+        }, 2000);
+    }
+
+    viewSession(sessionId) {
+        const session = this.sessions.find(s => s.id === sessionId);
+        if (!session) return;
+
+        this.currentSession = session;
+        this.navigateTo('session-detail');
+        this.renderSessionDetail(session);
+    }
+
+    renderSessionDetail(session) {
+        // Update session info
+        const metadataContainer = document.querySelector('.session-metadata');
+        if (metadataContainer) {
+            metadataContainer.innerHTML = `
+                <div class="metadata-item">
+                    <div class="metadata-label">Session ID</div>
+                    <div class="metadata-value">${session.id}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Subject ID</div>
+                    <div class="metadata-value">${session.subjectId}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Date & Time</div>
+                    <div class="metadata-value">${new Date(session.timestamp).toLocaleString()}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Muscle Group</div>
+                    <div class="metadata-value">${session.muscleGroup}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Body Placement</div>
+                    <div class="metadata-value">${session.bodyPlacement}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Electrode Type</div>
+                    <div class="metadata-value">${session.electrodeType}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Electrode Configuration</div>
+                    <div class="metadata-value">${session.electrodeConfig}</div>
+                </div>
+            `;
+        }
+
+        // Render phases table
+        this.renderPhasesTable(session);
+        
+        // Initialize charts if Chart.js is available
+        if (typeof Chart !== 'undefined') {
+            this.renderSessionCharts(session);
+        }
+    }
+
+    renderPhasesTable(session) {
+        const phasesContent = document.getElementById('phases-content');
+        if (!phasesContent) return;
+
+        let tableHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>Phase</th>
+                        <th>Duration (ms)</th>
+                        <th>RMS</th>
+                        <th>MAV</th>
+                        <th>SNR</th>
+                        <th>Max Amplitude</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        Object.values(session.testPhases).forEach(phase => {
+            tableHTML += `
+                <tr>
+                    <td>${phase.name}</td>
+                    <td>${phase.duration}</td>
+                    <td>${phase.rms.toFixed(3)}</td>
+                    <td>${phase.mav.toFixed(3)}</td>
+                    <td>${phase.snr.toFixed(1)}</td>
+                    <td>${phase.maxAmplitude.toFixed(2)}</td>
+                </tr>
+            `;
+        });
+
+        tableHTML += '</tbody></table>';
+        phasesContent.innerHTML = tableHTML;
+    }
+
+    renderSessionCharts(session) {
+        // This would implement Chart.js charts for signal visualization
+        console.log('Rendering charts for session:', session.id);
+    }
+
+    switchTab(tabName) {
+        // Switch tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tabName);
+        });
+
+        // Switch tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('active', content.id === `${tabName}-content`);
+        });
+    }
+
+    renderComparisonView() {
+        const selector = document.querySelector('.session-selector');
+        if (!selector) return;
+
+        let selectorHTML = '<h3>Select Sessions to Compare</h3>';
+        
+        this.sessions.forEach(session => {
+            selectorHTML += `
+                <div class="session-checkbox">
+                    <input type="checkbox" id="compare-${session.id}" value="${session.id}">
+                    <label for="compare-${session.id}">
+                        ${session.id} - ${session.subjectId} - ${session.muscleGroup}
+                        <span class="text-muted">(${new Date(session.timestamp).toLocaleDateString()})</span>
+                    </label>
+                </div>
+            `;
+        });
+
+        selector.innerHTML = selectorHTML;
+    }
+
+    updateBodyMap() {
+        // Update muscle legend
+        const legend = document.getElementById('muscle-legend');
+        if (!legend) return;
+
+        const muscleGroups = [...new Set(this.sessions.map(s => s.muscleGroup))];
+        
+        let legendHTML = '<h3>Muscle Groups</h3><div class="legend-items">';
+        
+        muscleGroups.forEach(muscle => {
+            const sessionCount = this.sessions.filter(s => s.muscleGroup === muscle).length;
+            legendHTML += `
+                <div class="legend-item" data-muscle="${muscle}">
+                    <div class="legend-color" style="background-color: var(--color-primary);"></div>
+                    <span>${muscle} (${sessionCount} sessions)</span>
+                </div>
+            `;
+        });
+        
+        legendHTML += '</div>';
+        legend.innerHTML = legendHTML;
+    }
+
+    selectMuscle(muscle) {
+        this.selectedMuscle = muscle;
+        
+        // Update dashboard filter
+        const filterMuscle = document.getElementById('filter-muscle');
+        if (filterMuscle) {
+            filterMuscle.value = muscle;
+            this.filterSessions();
+        }
+        
+        // Navigate to dashboard to show filtered results
+        this.navigateTo('dashboard');
+        
+        this.showToast(`Filtered sessions for ${muscle}`, 'info');
+    }
+
+    populateScriptsList() {
+        const scriptsList = document.querySelector('.scripts-list');
+        if (!scriptsList) return;
+
+        let scriptsHTML = '';
+        
+        this.scripts.forEach((script, index) => {
+            scriptsHTML += `
+                <div class="script-item">
+                    <div class="script-info">
+                        <div class="script-name">${script.name}</div>
+                        <div class="script-size">${script.size}</div>
+                    </div>
+                    <div class="script-actions">
+                        <button class="btn btn--sm btn--outline" onclick="dashboard.editScript(${index})">Edit</button>
+                        <button class="btn btn--sm btn--outline" onclick="dashboard.deleteScript(${index})">Delete</button>
+                    </div>
+                </div>
+            `;
+        });
+
+        scriptsList.innerHTML = scriptsHTML;
+    }
+
+    editScript(index) {
+        const script = this.scripts[index];
+        if (!script) return;
+
+        const editor = document.getElementById('script-editor');
+        const textarea = document.getElementById('script-content');
+        
+        if (editor && textarea) {
+            textarea.value = script.content;
+            editor.style.display = 'block';
+            this.currentEditingScript = index;
+        }
+    }
+
+    deleteScript(index) {
+        this.showModal(
+            'Delete Script',
+            `Are you sure you want to delete "${this.scripts[index].name}"?`,
+            () => {
+                this.scripts.splice(index, 1);
+                this.populateScriptsList();
+                this.populateFormOptions();
+                this.showToast('Script deleted', 'success');
+            }
+        );
+    }
+
+    saveCurrentScript() {
+        const textarea = document.getElementById('script-content');
+        if (!textarea || this.currentEditingScript === undefined) return;
+
+        this.scripts[this.currentEditingScript].content = textarea.value;
+        this.showToast('Script saved', 'success');
+        
+        const editor = document.getElementById('script-editor');
+        if (editor) {
+            editor.style.display = 'none';
+        }
+        
+        this.populateScriptsList();
+        this.populateFormOptions();
+    }
+
+    testCurrentScript() {
+        this.showToast('Script testing feature coming soon', 'info');
+    }
+
+    handleScriptManagerUpload(files) {
+        Array.from(files).forEach(file => {
+            this.handleScriptUpload(file);
+        });
+        this.populateScriptsList();
+    }
+
+    exportSession() {
+        if (!this.currentSession) return;
+
+        const dataStr = JSON.stringify(this.currentSession, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${this.currentSession.id}_export.json`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        this.showToast('Session exported', 'success');
+    }
+
+    exportAllSessions() {
+        const dataStr = JSON.stringify(this.sessions, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `emg_sessions_export_${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+        this.showToast('All sessions exported', 'success');
+    }
+
+    showDeleteConfirmation() {
+        this.showModal(
+            'Delete Session',
+            `Are you sure you want to delete session "${this.currentSession.id}"?`,
+            () => {
+                const index = this.sessions.findIndex(s => s.id === this.currentSession.id);
+                if (index > -1) {
+                    this.sessions.splice(index, 1);
+                    this.filteredSessions = [...this.sessions];
+                    this.saveSessionsToStorage();
+                    this.navigateTo('dashboard');
+                    this.showToast('Session deleted', 'success');
+                }
+            }
+        );
+    }
+
+    toggleTheme() {
+        const body = document.body;
+        const currentTheme = body.getAttribute('data-color-scheme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        
+        body.setAttribute('data-color-scheme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        
+        this.showToast(`Switched to ${newTheme} theme`, 'info');
+    }
+
+    showModal(title, message, onConfirm) {
+        const modal = document.getElementById('modal-overlay');
+        const modalTitle = document.querySelector('.modal-header h3');
+        const modalBody = document.querySelector('.modal-body');
+        
+        if (modal && modalTitle && modalBody) {
+            modalTitle.textContent = title;
+            modalBody.innerHTML = `<p>${message}</p>`;
+            modal.classList.remove('hidden');
+            this.modalConfirmCallback = onConfirm;
+        }
+    }
+
+    hideModal() {
+        const modal = document.getElementById('modal-overlay');
+        if (modal) {
+            modal.classList.add('hidden');
+        }
+        this.modalConfirmCallback = null;
+    }
+
+    handleModalConfirm() {
+        if (this.modalConfirmCallback) {
+            this.modalConfirmCallback();
+        }
+        this.hideModal();
+    }
+
+    showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+
+        const icons = {
+            success: 'fas fa-check-circle',
+            error: 'fas fa-exclamation-circle',
+            warning: 'fas fa-exclamation-triangle',
+            info: 'fas fa-info-circle'
+        };
+
+        toast.innerHTML = `
+            <div class="toast-icon">
+                <i class="${icons[type]}"></i>
+            </div>
+            <div class="toast-content">
+                <div class="toast-message">${message}</div>
+            </div>
+        `;
+
+        container.appendChild(toast);
+
+        // Auto remove after 5 seconds
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 5000);
+    }
+}
+
+// Initialize the dashboard when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.dashboard = new EMGDashboard();
+});
+
         this.currentView = 'dashboard';
         this.sessions = [];
         this.scripts = [];
