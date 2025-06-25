@@ -38,8 +38,7 @@ class EMGDashboard {
             {
                 name: 'emg_basic_acquisition.py',
                 size: '2.8 KB',
-                content: `import pyodide
-from js import EMGBridge, displayInstructions, updateProgress
+                content: `import js
 
 # EMG Basic Acquisition Script
 class EMGAcquisition:
@@ -49,47 +48,47 @@ class EMGAcquisition:
         self.session_data = {}
     
     def connect_device(self, device_id):
-        displayInstructions("Connecting to EMG device...")
-        success = EMGBridge.connect_device(device_id)
+        js.displayInstructions("Connecting to EMG device...")
+        success = js.EMGBridge.connect_device(device_id)
         if success:
-            displayInstructions("Device connected successfully!")
+            js.displayInstructions("Device connected successfully!")
             return True
         else:
-            displayInstructions("Failed to connect to device")
+            js.displayInstructions("Failed to connect to device")
             return False
     
     def start_recording(self):
-        displayInstructions("Starting EMG recording...")
+        js.displayInstructions("Starting EMG recording...")
         self.is_recording = True
         self.session_data = {
             "acquisition": {
                 "name": "Basic Acquisition",
                 "rawData": [],
-                "startTime": EMGBridge.get_timestamp()
+                "startTime": js.EMGBridge.get_timestamp()
             }
         }
         
         # Start the stream
-        success = EMGBridge.start_stream()
+        success = js.EMGBridge.start_stream()
         if success:
-            displayInstructions("EMG stream active - recording data...")
+            js.displayInstructions("EMG stream active - recording data...")
             # Set up data collection interval
-            EMGBridge.start_data_collection("acquisition")
+            js.EMGBridge.start_data_collection("acquisition")
         else:
-            displayInstructions("Failed to start EMG stream")
+            js.displayInstructions("Failed to start EMG stream")
     
     def stop_recording(self):
-        displayInstructions("Stopping EMG recording...")
+        js.displayInstructions("Stopping EMG recording...")
         self.is_recording = False
-        EMGBridge.stop_stream()
+        js.EMGBridge.stop_stream()
         
         # Finalize the phase data
-        EMGBridge.finalize_phase("acquisition")
-        displayInstructions("Recording stopped. Data saved.")
+        js.EMGBridge.finalize_phase("acquisition")
+        js.displayInstructions("Recording stopped. Data saved.")
         return self.get_results()
     
     def get_results(self):
-        return EMGBridge.get_session_data()
+        return js.EMGBridge.get_session_data()
 
 # Initialize and run
 emg = EMGAcquisition()
@@ -98,8 +97,7 @@ emg.start_recording()`
             {
                 name: 'simple_mvc_test.py',
                 size: '3.1 KB',
-                content: `import pyodide
-from js import EMGBridge, displayInstructions, updateProgress
+                content: `import js
 
 # Simple MVC Test - Browser-Safe Version
 class SimpleMVCTest:
@@ -110,12 +108,12 @@ class SimpleMVCTest:
     
     def run_test(self):
         """Start the simple MVC test protocol"""
-        displayInstructions("Starting Simple MVC Test...")
+        js.displayInstructions("Starting Simple MVC Test...")
         self.is_running = True
         self.current_phase_index = 0
         
         # Initialize session data
-        EMGBridge.initialize_session({
+        js.EMGBridge.initialize_session({
             "baseline": {"name": "Baseline", "duration": 3000},
             "mvc": {"name": "Maximum Voluntary Contraction", "duration": 5000},
             "recovery": {"name": "Recovery", "duration": 3000}
@@ -134,17 +132,17 @@ class SimpleMVCTest:
         phase_id = self.test_phases[self.current_phase_index]
         
         if phase_id == "baseline":
-            displayInstructions("Relax your muscle completely (3 seconds)")
-            EMGBridge.start_phase("baseline", 3000)
+            js.displayInstructions("Relax your muscle completely (3 seconds)")
+            js.EMGBridge.start_phase("baseline", 3000)
         elif phase_id == "mvc":
-            displayInstructions("Perform MAXIMUM voluntary contraction NOW! (5 seconds)")
-            EMGBridge.start_phase("mvc", 5000)
+            js.displayInstructions("Perform MAXIMUM voluntary contraction NOW! (5 seconds)")
+            js.EMGBridge.start_phase("mvc", 5000)
         elif phase_id == "recovery":
-            displayInstructions("Relax and recover (3 seconds)")
-            EMGBridge.start_phase("recovery", 3000)
+            js.displayInstructions("Relax and recover (3 seconds)")
+            js.EMGBridge.start_phase("recovery", 3000)
         
         # Schedule next phase
-        EMGBridge.schedule_next_phase(self.phase_completed)
+        js.EMGBridge.schedule_next_phase(self.phase_completed)
     
     def phase_completed(self):
         """Called when a phase is completed"""
@@ -156,16 +154,16 @@ class SimpleMVCTest:
     
     def complete_test(self):
         """Complete the test and process results"""
-        displayInstructions("Test complete! Processing results...")
-        EMGBridge.finalize_test()
-        displayInstructions("All phases completed successfully!")
+        js.displayInstructions("Test complete! Processing results...")
+        js.EMGBridge.finalize_test()
+        js.displayInstructions("All phases completed successfully!")
         self.is_running = False
     
     def stop_test(self):
         """Stop the current test"""
         self.is_running = False
-        EMGBridge.stop_stream()
-        displayInstructions("Test stopped by user")
+        js.EMGBridge.stop_stream()
+        js.displayInstructions("Test stopped by user")
 
 # Initialize and run the test
 test = SimpleMVCTest()
@@ -174,8 +172,7 @@ test.run_test()`
             {
                 name: 'continuous_monitoring.py',
                 size: '2.2 KB',
-                content: `import pyodide
-from js import EMGBridge, displayInstructions, updateProgress
+                content: `import js
 
 # Continuous EMG Monitoring Script
 class ContinuousMonitor:
@@ -185,11 +182,11 @@ class ContinuousMonitor:
     
     def start_monitoring(self):
         """Start continuous EMG monitoring"""
-        displayInstructions("Starting continuous EMG monitoring...")
+        js.displayInstructions("Starting continuous EMG monitoring...")
         self.is_monitoring = True
         
         # Initialize monitoring session
-        EMGBridge.initialize_session({
+        js.EMGBridge.initialize_session({
             "monitoring": {
                 "name": "Continuous Monitoring", 
                 "duration": self.monitor_duration
@@ -197,24 +194,24 @@ class ContinuousMonitor:
         })
         
         # Start the monitoring phase
-        EMGBridge.start_phase("monitoring", self.monitor_duration)
-        displayInstructions("Monitoring active - move naturally...")
+        js.EMGBridge.start_phase("monitoring", self.monitor_duration)
+        js.displayInstructions("Monitoring active - move naturally...")
         
         # Set up completion callback
-        EMGBridge.schedule_next_phase(self.monitoring_complete)
+        js.EMGBridge.schedule_next_phase(self.monitoring_complete)
     
     def monitoring_complete(self):
         """Called when monitoring period ends"""
-        displayInstructions("Monitoring period complete!")
-        EMGBridge.finalize_test()
+        js.displayInstructions("Monitoring period complete!")
+        js.EMGBridge.finalize_test()
         self.is_monitoring = False
     
     def stop_monitoring(self):
         """Stop monitoring"""
         self.is_monitoring = False
-        EMGBridge.stop_stream()
-        EMGBridge.finalize_test()
-        displayInstructions("Monitoring stopped")
+        js.EMGBridge.stop_stream()
+        js.EMGBridge.finalize_test()
+        js.displayInstructions("Monitoring stopped")
     
     def get_status(self):
         """Get current monitoring status"""
@@ -247,33 +244,11 @@ monitor.start_monitoring()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Create persistent proxies to prevent garbage collection
-            const emgBridge = this.createEMGBridge();
-            const displayInstructionsFn = this.pyodide.runPython(`
-                import pyodide
-                pyodide.create_proxy(lambda msg: None)
-            `);
-            const updateProgressFn = this.pyodide.runPython(`
-                import pyodide
-                pyodide.create_proxy(lambda progress: None)
-            `);
-            
-            // Create proper proxies
-            globalThis.EMGBridge = emgBridge;
-            globalThis.displayInstructions = this.pyodide.runPython(`
-                import pyodide
-                from js import window
-                pyodide.create_proxy(window.displayInstructions_native)
-            `);
-            globalThis.updateProgress = this.pyodide.runPython(`
-                import pyodide
-                from js import window
-                pyodide.create_proxy(window.updateProgress_native)
-            `);
-            
-            // Set up native functions that the proxies will call
-            window.displayInstructions_native = this.displayInstructions.bind(this);
-            window.updateProgress_native = this.updateProgress.bind(this);
+            // Simple approach - just expose objects directly on globalThis
+            // No need for complex proxy creation that causes compatibility issues
+            globalThis.EMGBridge = this.createEMGBridge();
+            globalThis.displayInstructions = this.displayInstructions.bind(this);
+            globalThis.updateProgress = this.updateProgress.bind(this);
             
             console.log("Pyodide initialized successfully");
             this.showToast("Python environment ready", "success");
