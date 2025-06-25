@@ -247,15 +247,33 @@ monitor.start_monitoring()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Create a proper bridge object that Pyodide can access
+            // Create persistent proxies to prevent garbage collection
             const emgBridge = this.createEMGBridge();
-            const displayInstructionsFn = this.displayInstructions.bind(this);
-            const updateProgressFn = this.updateProgress.bind(this);
+            const displayInstructionsFn = this.pyodide.runPython(`
+                import pyodide
+                pyodide.create_proxy(lambda msg: None)
+            `);
+            const updateProgressFn = this.pyodide.runPython(`
+                import pyodide
+                pyodide.create_proxy(lambda progress: None)
+            `);
             
-            // Set up globals that Python can import from js module
+            // Create proper proxies
             globalThis.EMGBridge = emgBridge;
-            globalThis.displayInstructions = displayInstructionsFn;
-            globalThis.updateProgress = updateProgressFn;
+            globalThis.displayInstructions = this.pyodide.runPython(`
+                import pyodide
+                from js import window
+                pyodide.create_proxy(window.displayInstructions_native)
+            `);
+            globalThis.updateProgress = this.pyodide.runPython(`
+                import pyodide
+                from js import window
+                pyodide.create_proxy(window.updateProgress_native)
+            `);
+            
+            // Set up native functions that the proxies will call
+            window.displayInstructions_native = this.displayInstructions.bind(this);
+            window.updateProgress_native = this.updateProgress.bind(this);
             
             console.log("Pyodide initialized successfully");
             this.showToast("Python environment ready", "success");
@@ -1034,16 +1052,21 @@ monitor.start_monitoring()`
     }
 
     saveCurrentSession() {
-        const formData = new FormData(document.getElementById('new-test-form'));
+        // Get form values directly from elements instead of FormData
+        const subjectId = document.getElementById('subject-id')?.value || 'Unknown';
+        const muscleGroup = document.getElementById('muscle-group')?.value || 'Unknown';
+        const bodyPlacement = document.getElementById('body-placement')?.value || 'Not specified';
+        const electrodeType = document.getElementById('electrode-type')?.value || 'Unknown';
+        const electrodeConfig = document.getElementById('electrode-config')?.value || 'Not specified';
         
         const sessionData = {
             id: `emg-${Date.now()}`,
             timestamp: new Date().toISOString(),
-            subjectId: formData.get('subject-id'),
-            muscleGroup: formData.get('muscle-group'),
-            bodyPlacement: formData.get('body-placement'),
-            electrodeType: formData.get('electrode-type'),
-            electrodeConfig: formData.get('electrode-config'),
+            subjectId: subjectId,
+            muscleGroup: muscleGroup,
+            bodyPlacement: bodyPlacement,
+            electrodeType: electrodeType,
+            electrodeConfig: electrodeConfig,
             testPhases: this.currentTestData
         };
 
