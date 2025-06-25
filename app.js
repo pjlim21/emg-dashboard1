@@ -36,7 +36,7 @@ class EMGDashboard {
                 name: 'emg_basic_acquisition.py',
                 size: '3.2 KB',
                 content: `import pyodide
-from js import EMGBridge
+from js import EMGBridge, displayInstructions, updateProgress
 import numpy as np
 
 # EMG Data Acquisition Script
@@ -52,9 +52,10 @@ class EMGAcquisition:
     
     def start_recording(self):
         print("Starting EMG recording...")
+        displayInstructions("Starting EMG recording...")
         self.is_recording = True
         self.data_buffer = []
-        EMGBridge.start_stream(self.on_data_received)
+        EMGBridge.start_stream()
     
     def on_data_received(self, data):
         if self.is_recording:
@@ -62,6 +63,7 @@ class EMGAcquisition:
     
     def stop_recording(self):
         print("Stopping EMG recording...")
+        displayInstructions("EMG recording stopped")
         self.is_recording = False
         EMGBridge.stop_stream()
     
@@ -261,10 +263,10 @@ test = DynamicContractionTest()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Set up the EMGBridge object for Python-JavaScript communication
-            this.pyodide.globals.set("EMGBridge", this.createEMGBridge());
-            this.pyodide.globals.set("displayInstructions", this.displayInstructions.bind(this));
-            this.pyodide.globals.set("updateProgress", this.updateProgress.bind(this));
+            // Register JavaScript modules for Python import
+            this.pyodide.registerJsModule("EMGBridge", this.createEMGBridge());
+            this.pyodide.registerJsModule("displayInstructions", this.displayInstructions.bind(this));
+            this.pyodide.registerJsModule("updateProgress", this.updateProgress.bind(this));
             
             console.log("Pyodide initialized successfully");
         } catch (error) {
