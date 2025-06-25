@@ -13,6 +13,9 @@ class EMGDashboard {
         this.currentScript = null;
         this.pyodide = null;
         
+        // Store persistent proxies to prevent garbage collection
+        this.persistentProxies = {};
+        
         // BLE handles
         this.bluetoothDevice = null;
         this.gattServer = null;
@@ -141,8 +144,8 @@ class SimpleMVCTest:
             js.displayInstructions("Relax and recover (3 seconds)")
             js.EMGBridge.start_phase("recovery", 3000)
         
-        # Schedule next phase
-        js.EMGBridge.schedule_next_phase(self.phase_completed)
+        # Schedule next phase using persistent proxy
+        js.EMGBridge.schedule_next_phase(js.phase_completed_proxy)
     
     def phase_completed(self):
         """Called when a phase is completed"""
@@ -197,8 +200,8 @@ class ContinuousMonitor:
         js.EMGBridge.start_phase("monitoring", self.monitor_duration)
         js.displayInstructions("Monitoring active - move naturally...")
         
-        # Set up completion callback
-        js.EMGBridge.schedule_next_phase(self.monitoring_complete)
+        # Set up completion callback using persistent proxy
+        js.EMGBridge.schedule_next_phase(js.monitoring_complete_proxy)
     
     def monitoring_complete(self):
         """Called when monitoring period ends"""
@@ -244,17 +247,39 @@ monitor.start_monitoring()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Simple approach - just expose objects directly on globalThis
-            // No need for complex proxy creation that causes compatibility issues
+            // Create persistent proxies to prevent garbage collection
+            this.persistentProxies.displayInstructions = this.pyodide.ffi.create_proxy(this.displayInstructions.bind(this));
+            this.persistentProxies.updateProgress = this.pyodide.ffi.create_proxy(this.updateProgress.bind(this));
+            this.persistentProxies.phaseCompleted = this.pyodide.ffi.create_proxy(this.phaseCompleted.bind(this));
+            this.persistentProxies.monitoringComplete = this.pyodide.ffi.create_proxy(this.monitoringComplete.bind(this));
+            
+            // Expose objects to Python with persistent proxies
             globalThis.EMGBridge = this.createEMGBridge();
-            globalThis.displayInstructions = this.displayInstructions.bind(this);
-            globalThis.updateProgress = this.updateProgress.bind(this);
+            globalThis.displayInstructions = this.persistentProxies.displayInstructions;
+            globalThis.updateProgress = this.persistentProxies.updateProgress;
+            globalThis.phase_completed_proxy = this.persistentProxies.phaseCompleted;
+            globalThis.monitoring_complete_proxy = this.persistentProxies.monitoringComplete;
             
             console.log("Pyodide initialized successfully");
             this.showToast("Python environment ready", "success");
         } catch (error) {
             console.error("Failed to initialize Pyodide:", error);
             this.showToast("Failed to initialize Python environment", "error");
+        }
+    }
+
+    phaseCompleted() {
+        // This method will be called from Python via the persistent proxy
+        if (this.phaseCompleteCallback) {
+            this.phaseCompleteCallback();
+        }
+    }
+
+    monitoringComplete() {
+        // This method will be called from Python for monitoring completion
+        this.displayInstructions("Monitoring period complete!");
+        if (Object.keys(this.currentTestData).length > 0) {
+            this.saveCurrentSession();
         }
     }
 
@@ -364,7 +389,16 @@ monitor.start_monitoring()`
             },
             
             schedule_next_phase: (callback) => {
-                dashboard.phaseCompleteCallback = callback;
+                dashboard.phaseCompleteCallback = () => {
+                    // Call the Python callback via the persistent proxy
+                    if (callback) {
+                        try {
+                            callback();
+                        } catch (error) {
+                            console.error("Error calling Python callback:", error);
+                        }
+                    }
+                };
             },
             
             finalize_phase: (phaseId) => {
@@ -1653,9 +1687,28 @@ monitor.start_monitoring()`
 
         this.showToast("Test configuration saved. Connect device and start test.", "success");
     }
+
+    // Cleanup method to destroy proxies when needed
+    cleanup() {
+        if (this.persistentProxies) {
+            Object.values(this.persistentProxies).forEach(proxy => {
+                if (proxy && typeof proxy.destroy === 'function') {
+                    proxy.destroy();
+                }
+            });
+            this.persistentProxies = {};
+        }
+    }
 }
 
 // Initialize the dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.emgDashboard = new EMGDashboard();
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (window.emgDashboard) {
+        window.emgDashboard.cleanup();
+    }
 });
