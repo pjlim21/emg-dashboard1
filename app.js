@@ -21,6 +21,8 @@ class EMGDashboard {
         this.emgBuffer = [];
         this.testStartTime = null;
         this.currentTestData = {};
+        this.activeTestPhase = null;
+        this.phaseStartTime = null;
         
         // UUIDs for BLE EMG device
         this.EMG_SERVICE_UUID = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
@@ -31,7 +33,7 @@ class EMGDashboard {
         this.muscleGroups = ["Bicep", "Tricep", "Hamstring", "Quadriceps", "Deltoid", "Pectoralis Major", "Latissimus Dorsi", "Gastrocnemius"];
         this.electrodeTypes = ["Gel", "Dry", "Microneedle", "Surface Array"];
         
-        // Default Python scripts (simulation-free and Chrome-safe)
+        // Default Python scripts (completely browser-safe)
         this.defaultScripts = [
             {
                 name: 'emg_basic_acquisition.py',
@@ -44,7 +46,7 @@ class EMGAcquisition:
     def __init__(self):
         self.sampling_rate = 1000  # Hz
         self.is_recording = False
-        self.data_buffer = []
+        self.session_data = {}
     
     def connect_device(self, device_id):
         displayInstructions("Connecting to EMG device...")
@@ -59,54 +61,35 @@ class EMGAcquisition:
     def start_recording(self):
         displayInstructions("Starting EMG recording...")
         self.is_recording = True
-        self.data_buffer = []
-        EMGBridge.start_stream()
-        displayInstructions("Recording in progress. EMG data streaming...")
+        self.session_data = {
+            "acquisition": {
+                "name": "Basic Acquisition",
+                "rawData": [],
+                "startTime": EMGBridge.get_timestamp()
+            }
+        }
+        
+        # Start the stream
+        success = EMGBridge.start_stream()
+        if success:
+            displayInstructions("EMG stream active - recording data...")
+            # Set up data collection interval
+            EMGBridge.start_data_collection("acquisition")
+        else:
+            displayInstructions("Failed to start EMG stream")
     
     def stop_recording(self):
         displayInstructions("Stopping EMG recording...")
         self.is_recording = False
         EMGBridge.stop_stream()
-        displayInstructions("Recording stopped. Processing data...")
-        return self.analyze_data()
+        
+        # Finalize the phase data
+        EMGBridge.finalize_phase("acquisition")
+        displayInstructions("Recording stopped. Data saved.")
+        return self.get_results()
     
-    def analyze_data(self):
-        if len(self.data_buffer) == 0:
-            displayInstructions("No data collected")
-            return {}
-        
-        # Get data from EMG bridge
-        raw_data = EMGBridge.get_current_data()
-        if not raw_data:
-            displayInstructions("No EMG data available")
-            return {}
-        
-        # Simple analysis (browser-safe)
-        data_sum = 0
-        data_abs_sum = 0
-        max_val = 0
-        
-        for value in raw_data:
-            data_sum += value
-            abs_val = abs(value)
-            data_abs_sum += abs_val
-            if abs_val > max_val:
-                max_val = abs_val
-        
-        count = len(raw_data)
-        mean_val = data_sum / count if count > 0 else 0
-        mav = data_abs_sum / count if count > 0 else 0
-        
-        results = {
-            "mean": float(mean_val),
-            "mav": float(mav),
-            "maxAmplitude": float(max_val),
-            "sampleCount": count,
-            "rawData": raw_data
-        }
-        
-        displayInstructions(f"Analysis complete: {count} samples, MAV: {mav:.3f}")
-        return results
+    def get_results(self):
+        return EMGBridge.get_session_data()
 
 # Initialize and run
 emg = EMGAcquisition()
@@ -118,117 +101,65 @@ emg.start_recording()`
                 content: `import pyodide
 from js import EMGBridge, displayInstructions, updateProgress
 
-# Simple MVC Test - Chrome-Safe Version
+# Simple MVC Test - Browser-Safe Version
 class SimpleMVCTest:
     def __init__(self):
-        self.test_phases = {}
-        self.current_phase = None
+        self.test_phases = ["baseline", "mvc", "recovery"]
+        self.current_phase_index = 0
         self.is_running = False
     
     def run_test(self):
-        """Run a simple MVC test protocol"""
+        """Start the simple MVC test protocol"""
         displayInstructions("Starting Simple MVC Test...")
         self.is_running = True
-        self.test_phases = {}
+        self.current_phase_index = 0
         
-        # Phase 1: Baseline measurement
-        self.run_phase("baseline", "Relax your muscle completely", 3)
+        # Initialize session data
+        EMGBridge.initialize_session({
+            "baseline": {"name": "Baseline", "duration": 3000},
+            "mvc": {"name": "Maximum Voluntary Contraction", "duration": 5000},
+            "recovery": {"name": "Recovery", "duration": 3000}
+        })
         
-        # Phase 2: MVC
-        self.run_phase("mvc", "Perform maximum voluntary contraction NOW!", 5)
-        
-        # Phase 3: Recovery
-        self.run_phase("recovery", "Relax and recover", 3)
-        
-        displayInstructions("Test complete! Results processed.")
-        self.process_results()
-        return self.test_phases
-    
-    def run_phase(self, phase_id, instruction, duration_seconds):
-        """Run a single test phase"""
-        if not self.is_running:
-            return False
-        
-        displayInstructions(f"{instruction} ({duration_seconds}s)")
-        updateProgress(0)
-        
-        # Start data collection
-        EMGBridge.start_stream()
-        
-        # Collect data for the specified duration
-        # Using a simple counter instead of async/await
-        total_steps = duration_seconds * 10  # 100ms intervals
-        
-        for step in range(total_steps):
-            if not self.is_running:
-                break
-            
-            # Update progress
-            progress = (step / total_steps) * 100
-            updateProgress(progress)
-            
-            # Small delay (browser-safe)
-            # Using a simple loop instead of sleep
-            for i in range(10000):
-                pass
-        
-        # Get collected data
-        phase_data = EMGBridge.get_current_data()
-        
-        # Stop streaming
-        EMGBridge.stop_stream()
-        
-        # Store phase data
-        self.test_phases[phase_id] = {
-            "name": instruction,
-            "duration": duration_seconds * 1000,  # ms
-            "rawData": phase_data if phase_data else [],
-            "phase": phase_id
-        }
-        
-        updateProgress(100)
-        displayInstructions(f"Phase '{phase_id}' completed")
+        # Start first phase
+        self.start_next_phase()
         return True
     
-    def process_results(self):
-        """Process all collected phase data"""
-        for phase_id, phase_data in self.test_phases.items():
-            raw_data = phase_data.get("rawData", [])
-            
-            if not raw_data:
-                continue
-            
-            # Simple statistics (browser-safe)
-            data_sum = 0
-            abs_sum = 0
-            max_amp = 0
-            
-            for value in raw_data:
-                data_sum += value
-                abs_val = abs(value)
-                abs_sum += abs_val
-                if abs_val > max_amp:
-                    max_amp = abs_val
-            
-            count = len(raw_data)
-            if count > 0:
-                mean_val = data_sum / count
-                mav = abs_sum / count
-                
-                # Simple RMS calculation
-                square_sum = sum(x * x for x in raw_data)
-                rms = (square_sum / count) ** 0.5
-                
-                # Update phase data
-                phase_data.update({
-                    "mean": float(mean_val),
-                    "rms": float(rms),
-                    "mav": float(mav),
-                    "maxAmplitude": float(max_amp),
-                    "sampleCount": count
-                })
+    def start_next_phase(self):
+        """Start the next phase in the test"""
+        if self.current_phase_index >= len(self.test_phases):
+            self.complete_test()
+            return
         
-        displayInstructions("All phases processed successfully!")
+        phase_id = self.test_phases[self.current_phase_index]
+        
+        if phase_id == "baseline":
+            displayInstructions("Relax your muscle completely (3 seconds)")
+            EMGBridge.start_phase("baseline", 3000)
+        elif phase_id == "mvc":
+            displayInstructions("Perform MAXIMUM voluntary contraction NOW! (5 seconds)")
+            EMGBridge.start_phase("mvc", 5000)
+        elif phase_id == "recovery":
+            displayInstructions("Relax and recover (3 seconds)")
+            EMGBridge.start_phase("recovery", 3000)
+        
+        # Schedule next phase
+        EMGBridge.schedule_next_phase(self.phase_completed)
+    
+    def phase_completed(self):
+        """Called when a phase is completed"""
+        if not self.is_running:
+            return
+            
+        self.current_phase_index += 1
+        self.start_next_phase()
+    
+    def complete_test(self):
+        """Complete the test and process results"""
+        displayInstructions("Test complete! Processing results...")
+        EMGBridge.finalize_test()
+        displayInstructions("All phases completed successfully!")
+        self.is_running = False
     
     def stop_test(self):
         """Stop the current test"""
@@ -241,83 +172,59 @@ test = SimpleMVCTest()
 test.run_test()`
             },
             {
-                name: 'emg_stream_monitor.py',
+                name: 'continuous_monitoring.py',
                 size: '2.2 KB',
                 content: `import pyodide
 from js import EMGBridge, displayInstructions, updateProgress
 
-# EMG Stream Monitor - Real-time monitoring script
-class EMGStreamMonitor:
+# Continuous EMG Monitoring Script
+class ContinuousMonitor:
     def __init__(self):
         self.is_monitoring = False
-        self.sample_count = 0
-        self.max_samples = 1000  # Limit to prevent browser issues
+        self.monitor_duration = 30000  # 30 seconds max
     
     def start_monitoring(self):
-        """Start real-time EMG monitoring"""
-        displayInstructions("Starting EMG stream monitoring...")
+        """Start continuous EMG monitoring"""
+        displayInstructions("Starting continuous EMG monitoring...")
         self.is_monitoring = True
-        self.sample_count = 0
         
-        # Start the stream
-        success = EMGBridge.start_stream()
-        if success:
-            displayInstructions("EMG stream active - monitoring live data")
-            self.monitor_loop()
-        else:
-            displayInstructions("Failed to start EMG stream")
+        # Initialize monitoring session
+        EMGBridge.initialize_session({
+            "monitoring": {
+                "name": "Continuous Monitoring", 
+                "duration": self.monitor_duration
+            }
+        })
+        
+        # Start the monitoring phase
+        EMGBridge.start_phase("monitoring", self.monitor_duration)
+        displayInstructions("Monitoring active - move naturally...")
+        
+        # Set up completion callback
+        EMGBridge.schedule_next_phase(self.monitoring_complete)
     
-    def monitor_loop(self):
-        """Simple monitoring loop"""
-        while self.is_monitoring and self.sample_count < self.max_samples:
-            # Get current data
-            current_data = EMGBridge.get_current_data()
-            
-            if current_data and len(current_data) > 0:
-                self.sample_count += len(current_data)
-                
-                # Calculate basic stats for display
-                latest_value = current_data[-1]
-                avg_value = sum(current_data) / len(current_data)
-                
-                # Update progress based on sample count
-                progress = min((self.sample_count / self.max_samples) * 100, 100)
-                updateProgress(progress)
-                
-                # Display current stats
-                displayInstructions(f"Monitoring: {self.sample_count} samples, Latest: {latest_value:.3f}, Avg: {avg_value:.3f}")
-            
-            # Simple delay
-            for i in range(50000):
-                pass
-        
-        # Stop when done
-        if self.sample_count >= self.max_samples:
-            displayInstructions(f"Monitoring complete - collected {self.sample_count} samples")
-            self.stop_monitoring()
+    def monitoring_complete(self):
+        """Called when monitoring period ends"""
+        displayInstructions("Monitoring period complete!")
+        EMGBridge.finalize_test()
+        self.is_monitoring = False
     
     def stop_monitoring(self):
         """Stop monitoring"""
         self.is_monitoring = False
         EMGBridge.stop_stream()
-        
-        # Get final data summary
-        final_data = EMGBridge.get_current_data()
-        if final_data:
-            displayInstructions(f"Monitoring stopped. Total samples: {len(final_data)}")
-        else:
-            displayInstructions("Monitoring stopped. No data collected.")
+        EMGBridge.finalize_test()
+        displayInstructions("Monitoring stopped")
     
     def get_status(self):
         """Get current monitoring status"""
         return {
             "is_monitoring": self.is_monitoring,
-            "sample_count": self.sample_count,
-            "max_samples": self.max_samples
+            "duration": self.monitor_duration
         }
 
 # Initialize and start monitoring
-monitor = EMGStreamMonitor()
+monitor = ContinuousMonitor()
 monitor.start_monitoring()`
             }
         ];
@@ -364,6 +271,7 @@ monitor.start_monitoring()`
             connect_device: (deviceId) => {
                 return dashboard.bluetoothDevice !== null;
             },
+            
             start_stream: () => {
                 if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
@@ -381,6 +289,7 @@ monitor.start_monitoring()`
                 }
                 return false;
             },
+            
             stop_stream: () => {
                 if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
@@ -398,22 +307,193 @@ monitor.start_monitoring()`
                 }
                 return false;
             },
-            get_current_data: () => {
-                const data = [...dashboard.emgBuffer];
-                dashboard.emgBuffer = []; // Clear buffer after reading
-                return data;
+            
+            get_timestamp: () => {
+                return Date.now();
             },
-            collect_phase_data: (phaseId, duration) => {
-                // Simplified data collection without promises
-                const data = [...dashboard.emgBuffer];
-                dashboard.emgBuffer = [];
-                return {
-                    rawData: data,
-                    duration: duration,
-                    phase: phaseId
-                };
+            
+            initialize_session: (phases) => {
+                dashboard.currentTestData = {};
+                for (const [phaseId, phaseInfo] of Object.entries(phases)) {
+                    dashboard.currentTestData[phaseId] = {
+                        name: phaseInfo.name,
+                        duration: phaseInfo.duration,
+                        rawData: [],
+                        startTime: null,
+                        endTime: null
+                    };
+                }
+                console.log("Session initialized with phases:", Object.keys(phases));
+            },
+            
+            start_phase: (phaseId, duration) => {
+                dashboard.activeTestPhase = phaseId;
+                dashboard.phaseStartTime = Date.now();
+                
+                if (dashboard.currentTestData[phaseId]) {
+                    dashboard.currentTestData[phaseId].startTime = dashboard.phaseStartTime;
+                    dashboard.currentTestData[phaseId].rawData = [];
+                }
+                
+                console.log(`Started phase: ${phaseId} for ${duration}ms`);
+                
+                // Clear any existing intervals
+                if (dashboard.phaseInterval) {
+                    clearInterval(dashboard.phaseInterval);
+                }
+                
+                // Set up progress updates
+                const updateInterval = 100; // Update every 100ms
+                const totalSteps = duration / updateInterval;
+                let currentStep = 0;
+                
+                dashboard.phaseInterval = setInterval(() => {
+                    if (!dashboard.testInProgress || dashboard.activeTestPhase !== phaseId) {
+                        clearInterval(dashboard.phaseInterval);
+                        return;
+                    }
+                    
+                    currentStep++;
+                    const progress = (currentStep / totalSteps) * 100;
+                    dashboard.updateProgress(Math.min(progress, 100));
+                    
+                    // Collect EMG data if available
+                    if (dashboard.emgBuffer.length > 0) {
+                        dashboard.currentTestData[phaseId].rawData.push(...dashboard.emgBuffer);
+                        dashboard.emgBuffer = [];
+                    }
+                    
+                    if (currentStep >= totalSteps) {
+                        clearInterval(dashboard.phaseInterval);
+                        dashboard.finalizePhase(phaseId);
+                    }
+                }, updateInterval);
+            },
+            
+            schedule_next_phase: (callback) => {
+                dashboard.phaseCompleteCallback = callback;
+            },
+            
+            finalize_phase: (phaseId) => {
+                if (dashboard.currentTestData[phaseId]) {
+                    dashboard.currentTestData[phaseId].endTime = Date.now();
+                    
+                    const rawData = dashboard.currentTestData[phaseId].rawData;
+                    if (rawData.length > 0) {
+                        // Calculate basic metrics
+                        let sum = 0, absSum = 0, maxAmp = 0;
+                        for (const value of rawData) {
+                            sum += value;
+                            const absVal = Math.abs(value);
+                            absSum += absVal;
+                            if (absVal > maxAmp) maxAmp = absVal;
+                        }
+                        
+                        const mean = sum / rawData.length;
+                        const mav = absSum / rawData.length;
+                        const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
+                        
+                        dashboard.currentTestData[phaseId].mean = mean;
+                        dashboard.currentTestData[phaseId].mav = mav;
+                        dashboard.currentTestData[phaseId].rms = rms;
+                        dashboard.currentTestData[phaseId].maxAmplitude = maxAmp;
+                        dashboard.currentTestData[phaseId].sampleCount = rawData.length;
+                    }
+                }
+                
+                dashboard.activeTestPhase = null;
+                dashboard.updateProgress(100);
+                
+                // Call the callback if set
+                if (dashboard.phaseCompleteCallback) {
+                    setTimeout(dashboard.phaseCompleteCallback, 500);
+                }
+            },
+            
+            finalize_test: () => {
+                // Ensure any remaining data is saved
+                if (dashboard.activeTestPhase) {
+                    dashboard.finalizePhase(dashboard.activeTestPhase);
+                }
+                
+                // Auto-save the session
+                if (Object.keys(dashboard.currentTestData).length > 0) {
+                    dashboard.saveCurrentSession();
+                }
+            },
+            
+            start_data_collection: (phaseId) => {
+                dashboard.activeTestPhase = phaseId;
+                dashboard.phaseStartTime = Date.now();
+                
+                if (!dashboard.currentTestData[phaseId]) {
+                    dashboard.currentTestData[phaseId] = {
+                        name: "Data Collection",
+                        rawData: [],
+                        startTime: dashboard.phaseStartTime
+                    };
+                }
+                
+                // Set up continuous data collection
+                dashboard.dataCollectionInterval = setInterval(() => {
+                    if (!dashboard.testInProgress) {
+                        clearInterval(dashboard.dataCollectionInterval);
+                        return;
+                    }
+                    
+                    // Collect EMG data if available
+                    if (dashboard.emgBuffer.length > 0) {
+                        dashboard.currentTestData[phaseId].rawData.push(...dashboard.emgBuffer);
+                        dashboard.emgBuffer = [];
+                    }
+                    
+                    // Update progress based on time
+                    const elapsed = Date.now() - dashboard.phaseStartTime;
+                    const progress = Math.min((elapsed / 10000) * 100, 99); // Max 10 seconds before hitting 99%
+                    dashboard.updateProgress(progress);
+                }, 100);
+            },
+            
+            get_session_data: () => {
+                return dashboard.currentTestData;
             }
         };
+    }
+
+    finalizePhase(phaseId) {
+        if (this.currentTestData[phaseId]) {
+            this.currentTestData[phaseId].endTime = Date.now();
+            
+            const rawData = this.currentTestData[phaseId].rawData;
+            if (rawData.length > 0) {
+                // Calculate basic metrics
+                let sum = 0, absSum = 0, maxAmp = 0;
+                for (const value of rawData) {
+                    sum += value;
+                    const absVal = Math.abs(value);
+                    absSum += absVal;
+                    if (absVal > maxAmp) maxAmp = absVal;
+                }
+                
+                const mean = sum / rawData.length;
+                const mav = absSum / rawData.length;
+                const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
+                
+                this.currentTestData[phaseId].mean = mean;
+                this.currentTestData[phaseId].mav = mav;
+                this.currentTestData[phaseId].rms = rms;
+                this.currentTestData[phaseId].maxAmplitude = maxAmp;
+                this.currentTestData[phaseId].sampleCount = rawData.length;
+            }
+        }
+        
+        this.activeTestPhase = null;
+        this.updateProgress(100);
+        
+        // Call the callback if set
+        if (this.phaseCompleteCallback) {
+            setTimeout(this.phaseCompleteCallback, 500);
+        }
     }
 
     displayInstructions(instruction) {
@@ -855,6 +935,12 @@ monitor.start_monitoring()`
             this.testStartTime = Date.now();
             this.currentTestData = {};
             this.emgBuffer = [];
+            this.activeTestPhase = null;
+            this.phaseCompleteCallback = null;
+
+            // Clear any existing intervals
+            if (this.phaseInterval) clearInterval(this.phaseInterval);
+            if (this.dataCollectionInterval) clearInterval(this.dataCollectionInterval);
 
             // Show monitoring section
             document.querySelector('.test-monitoring').style.display = 'block';
@@ -898,6 +984,11 @@ monitor.start_monitoring()`
 
     pauseTest() {
         this.testInProgress = false;
+        
+        // Clear intervals
+        if (this.phaseInterval) clearInterval(this.phaseInterval);
+        if (this.dataCollectionInterval) clearInterval(this.dataCollectionInterval);
+        
         document.getElementById('start-test').disabled = false;
         document.getElementById('pause-test').disabled = true;
         this.displayInstructions("Test paused");
@@ -906,6 +997,15 @@ monitor.start_monitoring()`
 
     async stopTest() {
         this.testInProgress = false;
+        
+        // Clear intervals
+        if (this.phaseInterval) clearInterval(this.phaseInterval);
+        if (this.dataCollectionInterval) clearInterval(this.dataCollectionInterval);
+        
+        // Finalize any active phase
+        if (this.activeTestPhase) {
+            this.finalizePhase(this.activeTestPhase);
+        }
         
         // Stop BLE streaming
         if (this.commandCharacteristic && this.emgCharacteristic) {
@@ -930,7 +1030,7 @@ monitor.start_monitoring()`
         }
 
         this.displayInstructions("Test stopped");
-        this.showToast("Test stopped", "info");
+        this.showToast("Test stopped and saved", "info");
     }
 
     saveCurrentSession() {
@@ -949,6 +1049,11 @@ monitor.start_monitoring()`
 
         this.saveSession(sessionData);
         this.showToast("Session saved successfully", "success");
+        
+        // Refresh dashboard if we're on it
+        if (this.currentView === 'dashboard') {
+            this.renderDashboard();
+        }
     }
 
     initializeLiveChart() {
