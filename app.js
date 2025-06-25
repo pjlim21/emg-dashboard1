@@ -13,8 +13,8 @@ class EMGDashboard {
         this.currentScript = null;
         this.pyodide = null;
         
-        // Store persistent proxies to prevent garbage collection
-        this.persistentProxies = {};
+        // Store callback functions as instance properties to prevent GC
+        this.pythonCallbacks = {};
         
         // BLE handles
         this.bluetoothDevice = null;
@@ -144,8 +144,8 @@ class SimpleMVCTest:
             js.displayInstructions("Relax and recover (3 seconds)")
             js.EMGBridge.start_phase("recovery", 3000)
         
-        # Schedule next phase using persistent proxy
-        js.EMGBridge.schedule_next_phase(js.phase_completed_proxy)
+        # Schedule next phase using callback system
+        js.EMGBridge.schedule_next_phase("phase_completed")
     
     def phase_completed(self):
         """Called when a phase is completed"""
@@ -200,8 +200,8 @@ class ContinuousMonitor:
         js.EMGBridge.start_phase("monitoring", self.monitor_duration)
         js.displayInstructions("Monitoring active - move naturally...")
         
-        # Set up completion callback using persistent proxy
-        js.EMGBridge.schedule_next_phase(js.monitoring_complete_proxy)
+        # Set up completion callback
+        js.EMGBridge.schedule_next_phase("monitoring_complete")
     
     def monitoring_complete(self):
         """Called when monitoring period ends"""
@@ -247,18 +247,16 @@ monitor.start_monitoring()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Create persistent proxies to prevent garbage collection
-            this.persistentProxies.displayInstructions = this.pyodide.ffi.create_proxy(this.displayInstructions.bind(this));
-            this.persistentProxies.updateProgress = this.pyodide.ffi.create_proxy(this.updateProgress.bind(this));
-            this.persistentProxies.phaseCompleted = this.pyodide.ffi.create_proxy(this.phaseCompleted.bind(this));
-            this.persistentProxies.monitoringComplete = this.pyodide.ffi.create_proxy(this.monitoringComplete.bind(this));
+            // Store callback functions as instance properties to prevent garbage collection
+            this.pythonCallbacks.displayInstructions = this.displayInstructions.bind(this);
+            this.pythonCallbacks.updateProgress = this.updateProgress.bind(this);
+            this.pythonCallbacks.phaseCompleted = this.handlePhaseCompleted.bind(this);
+            this.pythonCallbacks.monitoringComplete = this.handleMonitoringComplete.bind(this);
             
-            // Expose objects to Python with persistent proxies
+            // Expose objects to Python - no proxies needed
             globalThis.EMGBridge = this.createEMGBridge();
-            globalThis.displayInstructions = this.persistentProxies.displayInstructions;
-            globalThis.updateProgress = this.persistentProxies.updateProgress;
-            globalThis.phase_completed_proxy = this.persistentProxies.phaseCompleted;
-            globalThis.monitoring_complete_proxy = this.persistentProxies.monitoringComplete;
+            globalThis.displayInstructions = this.pythonCallbacks.displayInstructions;
+            globalThis.updateProgress = this.pythonCallbacks.updateProgress;
             
             console.log("Pyodide initialized successfully");
             this.showToast("Python environment ready", "success");
@@ -268,15 +266,15 @@ monitor.start_monitoring()`
         }
     }
 
-    phaseCompleted() {
-        // This method will be called from Python via the persistent proxy
+    handlePhaseCompleted() {
+        // Called from Python when a phase completes
         if (this.phaseCompleteCallback) {
             this.phaseCompleteCallback();
         }
     }
 
-    monitoringComplete() {
-        // This method will be called from Python for monitoring completion
+    handleMonitoringComplete() {
+        // Called from Python when monitoring completes
         this.displayInstructions("Monitoring period complete!");
         if (Object.keys(this.currentTestData).length > 0) {
             this.saveCurrentSession();
@@ -388,15 +386,24 @@ monitor.start_monitoring()`
                 }, updateInterval);
             },
             
-            schedule_next_phase: (callback) => {
+            schedule_next_phase: (callbackName) => {
+                // Store callback by name to avoid proxy issues
                 dashboard.phaseCompleteCallback = () => {
-                    // Call the Python callback via the persistent proxy
-                    if (callback) {
-                        try {
-                            callback();
-                        } catch (error) {
-                            console.error("Error calling Python callback:", error);
+                    // Call Python function by name through pyodide
+                    try {
+                        if (callbackName === "phase_completed") {
+                            dashboard.pyodide.runPython(`
+if 'test' in globals():
+    test.phase_completed()
+`);
+                        } else if (callbackName === "monitoring_complete") {
+                            dashboard.pyodide.runPython(`
+if 'monitor' in globals():
+    monitor.monitoring_complete()
+`);
                         }
+                    } catch (error) {
+                        console.error("Error calling Python callback:", error);
                     }
                 };
             },
@@ -1687,28 +1694,9 @@ monitor.start_monitoring()`
 
         this.showToast("Test configuration saved. Connect device and start test.", "success");
     }
-
-    // Cleanup method to destroy proxies when needed
-    cleanup() {
-        if (this.persistentProxies) {
-            Object.values(this.persistentProxies).forEach(proxy => {
-                if (proxy && typeof proxy.destroy === 'function') {
-                    proxy.destroy();
-                }
-            });
-            this.persistentProxies = {};
-        }
-    }
 }
 
 // Initialize the dashboard when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.emgDashboard = new EMGDashboard();
-});
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-    if (window.emgDashboard) {
-        window.emgDashboard.cleanup();
-    }
 });
