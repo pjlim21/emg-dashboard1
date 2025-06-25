@@ -17,6 +17,7 @@ class EMGDashboard {
         this.bluetoothDevice = null;
         this.gattServer = null;
         this.emgCharacteristic = null;
+        this.commandCharacteristic = null;
         this.emgBuffer = [];
         this.testStartTime = null;
         this.currentTestData = {};
@@ -263,10 +264,10 @@ test = DynamicContractionTest()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Register JavaScript modules for Python import
-            this.pyodide.registerJsModule("EMGBridge", this.createEMGBridge());
-            this.pyodide.registerJsModule("displayInstructions", this.displayInstructions.bind(this));
-            this.pyodide.registerJsModule("updateProgress", this.updateProgress.bind(this));
+            // Make objects available on global scope for Python import
+            window.EMGBridge = this.createEMGBridge();
+            window.displayInstructions = this.displayInstructions.bind(this);
+            window.updateProgress = this.updateProgress.bind(this);
             
             console.log("Pyodide initialized successfully");
         } catch (error) {
@@ -280,17 +281,37 @@ test = DynamicContractionTest()`
             connect_device: (deviceId) => {
                 return this.bluetoothDevice !== null;
             },
-            start_stream: () => {
-                if (this.emgCharacteristic) {
-                    this.emgCharacteristic.startNotifications();
-                    return true;
+            start_stream: async () => {
+                if (this.emgCharacteristic && this.commandCharacteristic) {
+                    try {
+                        // Send "start" command to device
+                        const startCommand = new TextEncoder().encode("start");
+                        await this.commandCharacteristic.writeValueWithoutResponse(startCommand);
+                        
+                        // Start notifications
+                        await this.emgCharacteristic.startNotifications();
+                        return true;
+                    } catch (error) {
+                        console.error("Failed to start stream:", error);
+                        return false;
+                    }
                 }
                 return false;
             },
-            stop_stream: () => {
-                if (this.emgCharacteristic) {
-                    this.emgCharacteristic.stopNotifications();
-                    return true;
+            stop_stream: async () => {
+                if (this.emgCharacteristic && this.commandCharacteristic) {
+                    try {
+                        // Send "stop" command to device
+                        const stopCommand = new TextEncoder().encode("stop");
+                        await this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                        
+                        // Stop notifications
+                        await this.emgCharacteristic.stopNotifications();
+                        return true;
+                    } catch (error) {
+                        console.error("Failed to stop stream:", error);
+                        return false;
+                    }
                 }
                 return false;
             },
@@ -735,10 +756,12 @@ test = DynamicContractionTest()`
             
             this.gattServer = await this.bluetoothDevice.gatt.connect();
             const service = await this.gattServer.getPrimaryService(this.EMG_SERVICE_UUID);
+            
+            // Get both data and command characteristics (may be the same)
             this.emgCharacteristic = await service.getCharacteristic(this.EMG_CHARACTERISTIC_UUID);
+            this.commandCharacteristic = await service.getCharacteristic(this.EMG_COMMAND_CHARACTERISTIC_UUID);
 
-            // Set up notification handler
-            await this.emgCharacteristic.startNotifications();
+            // Set up notification handler for data
             this.emgCharacteristic.addEventListener('characteristicvaluechanged', this.handleNotifications.bind(this));
 
             document.getElementById('start-test').disabled = false;
@@ -763,7 +786,7 @@ test = DynamicContractionTest()`
     }
 
     async startTest() {
-        if (!this.emgCharacteristic) {
+        if (!this.emgCharacteristic || !this.commandCharacteristic) {
             this.showToast("Please connect to a device first", "error");
             return;
         }
@@ -837,12 +860,18 @@ else:
         this.showToast("Test paused", "warning");
     }
 
-    stopTest() {
+    async stopTest() {
         this.testInProgress = false;
         
-        // Stop BLE notifications
-        if (this.emgCharacteristic) {
-            this.emgCharacteristic.stopNotifications();
+        // Stop BLE streaming
+        if (this.commandCharacteristic && this.emgCharacteristic) {
+            try {
+                const stopCommand = new TextEncoder().encode("stop");
+                await this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                await this.emgCharacteristic.stopNotifications();
+            } catch (error) {
+                console.error("Failed to stop BLE streaming:", error);
+            }
         }
 
         // Reset UI
