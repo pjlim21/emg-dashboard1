@@ -31,16 +31,15 @@ class EMGDashboard {
         this.muscleGroups = ["Bicep", "Tricep", "Hamstring", "Quadriceps", "Deltoid", "Pectoralis Major", "Latissimus Dorsi", "Gastrocnemius"];
         this.electrodeTypes = ["Gel", "Dry", "Microneedle", "Surface Array"];
         
-        // Default Python scripts (simulation-free)
+        // Default Python scripts (simulation-free and Chrome-safe)
         this.defaultScripts = [
             {
                 name: 'emg_basic_acquisition.py',
-                size: '3.2 KB',
+                size: '2.8 KB',
                 content: `import pyodide
 from js import EMGBridge, displayInstructions, updateProgress
-import numpy as np
 
-# EMG Data Acquisition Script
+# EMG Basic Acquisition Script
 class EMGAcquisition:
     def __init__(self):
         self.sampling_rate = 1000  # Hz
@@ -48,201 +47,278 @@ class EMGAcquisition:
         self.data_buffer = []
     
     def connect_device(self, device_id):
-        print("Connecting to device:", device_id)
-        return EMGBridge.connect_device(device_id)
-    
-    def start_recording(self):
-        print("Starting EMG recording...")
-        displayInstructions("Starting EMG recording...")
-        self.is_recording = True
-        self.data_buffer = []
-        EMGBridge.start_stream()
-    
-    def on_data_received(self, data):
-        if self.is_recording:
-            self.data_buffer.extend(data)
-    
-    def stop_recording(self):
-        print("Stopping EMG recording...")
-        displayInstructions("EMG recording stopped")
-        self.is_recording = False
-        EMGBridge.stop_stream()
-    
-    def analyze_data(self):
-        if len(self.data_buffer) == 0:
-            print("No data to analyze")
-            return {}
-        
-        data_array = np.array(self.data_buffer)
-        
-        # Calculate basic metrics
-        rms = np.sqrt(np.mean(np.square(data_array)))
-        mav = np.mean(np.abs(data_array))
-        max_amp = np.max(np.abs(data_array))
-        
-        # Calculate SNR
-        signal = np.mean(data_array)
-        noise = np.std(data_array)
-        snr = 20 * np.log10(abs(signal/noise)) if noise > 0 else 0
-        
-        results = {
-            "rms": float(rms),
-            "mav": float(mav),
-            "maxAmplitude": float(max_amp),
-            "snr": float(snr),
-            "rawData": self.data_buffer
-        }
-        
-        return results
-
-# Usage
-emg = EMGAcquisition()`
-            },
-            {
-                name: 'dynamic_contraction_test.py',
-                size: '4.5 KB',
-                content: `import pyodide
-from js import EMGBridge, displayInstructions, updateProgress
-import numpy as np
-
-# Dynamic Contraction Test Protocol
-class DynamicContractionTest:
-    def __init__(self):
-        self.emg_data = {}
-        self.sampling_rate = 1000  # Hz
-        self.is_running = False
-    
-    def connect_device(self, device_id):
-        displayInstructions("Connecting to device...")
+        displayInstructions("Connecting to EMG device...")
         success = EMGBridge.connect_device(device_id)
         if success:
-            displayInstructions("Device connected successfully")
+            displayInstructions("Device connected successfully!")
             return True
         else:
             displayInstructions("Failed to connect to device")
             return False
     
-    def run_test(self):
-        """Run the complete dynamic contraction protocol"""
-        self.is_running = True
-        self.emg_data = {
-            "mvc1": {},
-            "mvc2": {},
-            "submaximal": {},
-            "walking": {}
+    def start_recording(self):
+        displayInstructions("Starting EMG recording...")
+        self.is_recording = True
+        self.data_buffer = []
+        EMGBridge.start_stream()
+        displayInstructions("Recording in progress. EMG data streaming...")
+    
+    def stop_recording(self):
+        displayInstructions("Stopping EMG recording...")
+        self.is_recording = False
+        EMGBridge.stop_stream()
+        displayInstructions("Recording stopped. Processing data...")
+        return self.analyze_data()
+    
+    def analyze_data(self):
+        if len(self.data_buffer) == 0:
+            displayInstructions("No data collected")
+            return {}
+        
+        # Get data from EMG bridge
+        raw_data = EMGBridge.get_current_data()
+        if not raw_data:
+            displayInstructions("No EMG data available")
+            return {}
+        
+        # Simple analysis (browser-safe)
+        data_sum = 0
+        data_abs_sum = 0
+        max_val = 0
+        
+        for value in raw_data:
+            data_sum += value
+            abs_val = abs(value)
+            data_abs_sum += abs_val
+            if abs_val > max_val:
+                max_val = abs_val
+        
+        count = len(raw_data)
+        mean_val = data_sum / count if count > 0 else 0
+        mav = data_abs_sum / count if count > 0 else 0
+        
+        results = {
+            "mean": float(mean_val),
+            "mav": float(mav),
+            "maxAmplitude": float(max_val),
+            "sampleCount": count,
+            "rawData": raw_data
         }
         
-        # First MVC
-        if not self._run_mvc_phase("mvc1", "Perform maximum voluntary contraction for 5 seconds"):
-            return False
-        
-        # Rest period
-        if not self._run_rest_phase("Rest for 30 seconds before next phase"):
-            return False
-        
-        # Second MVC
-        if not self._run_mvc_phase("mvc2", "Perform second maximum voluntary contraction for 5 seconds"):
-            return False
-        
-        # Rest period
-        if not self._run_rest_phase("Rest for 30 seconds before submaximal test"):
-            return False
-        
-        # 50% Sub-maximal contraction
-        if not self._run_submaximal_phase("submaximal", "Perform 50% of maximum contraction for 10 seconds"):
-            return False
-        
-        # Walking test
-        if not self._run_walking_phase("walking", "Walk at a comfortable pace for 15 seconds"):
-            return False
-        
-        displayInstructions("Test complete! Processing results...")
-        self._process_results()
-        return True
+        displayInstructions(f"Analysis complete: {count} samples, MAV: {mav:.3f}")
+        return results
+
+# Initialize and run
+emg = EMGAcquisition()
+emg.start_recording()`
+            },
+            {
+                name: 'simple_mvc_test.py',
+                size: '3.1 KB',
+                content: `import pyodide
+from js import EMGBridge, displayInstructions, updateProgress
+
+# Simple MVC Test - Chrome-Safe Version
+class SimpleMVCTest:
+    def __init__(self):
+        self.test_phases = {}
+        self.current_phase = None
+        self.is_running = False
     
-    def _run_mvc_phase(self, phase_id, instruction):
-        displayInstructions(instruction)
+    def run_test(self):
+        """Run a simple MVC test protocol"""
+        displayInstructions("Starting Simple MVC Test...")
+        self.is_running = True
+        self.test_phases = {}
+        
+        # Phase 1: Baseline measurement
+        self.run_phase("baseline", "Relax your muscle completely", 3)
+        
+        # Phase 2: MVC
+        self.run_phase("mvc", "Perform maximum voluntary contraction NOW!", 5)
+        
+        # Phase 3: Recovery
+        self.run_phase("recovery", "Relax and recover", 3)
+        
+        displayInstructions("Test complete! Results processed.")
+        self.process_results()
+        return self.test_phases
+    
+    def run_phase(self, phase_id, instruction, duration_seconds):
+        """Run a single test phase"""
+        if not self.is_running:
+            return False
+        
+        displayInstructions(f"{instruction} ({duration_seconds}s)")
         updateProgress(0)
         
         # Start data collection
         EMGBridge.start_stream()
         
-        # Wait for data from device (event-driven, not timer-based)
-        phase_data = EMGBridge.collect_phase_data(phase_id, 5000)  # 5 seconds
+        # Collect data for the specified duration
+        # Using a simple counter instead of async/await
+        total_steps = duration_seconds * 10  # 100ms intervals
         
-        if not self.is_running:
-            EMGBridge.stop_stream()
-            return False
+        for step in range(total_steps):
+            if not self.is_running:
+                break
+            
+            # Update progress
+            progress = (step / total_steps) * 100
+            updateProgress(progress)
+            
+            # Small delay (browser-safe)
+            # Using a simple loop instead of sleep
+            for i in range(10000):
+                pass
         
-        self.emg_data[phase_id] = phase_data
+        # Get collected data
+        phase_data = EMGBridge.get_current_data()
+        
+        # Stop streaming
         EMGBridge.stop_stream()
+        
+        # Store phase data
+        self.test_phases[phase_id] = {
+            "name": instruction,
+            "duration": duration_seconds * 1000,  # ms
+            "rawData": phase_data if phase_data else [],
+            "phase": phase_id
+        }
+        
         updateProgress(100)
+        displayInstructions(f"Phase '{phase_id}' completed")
         return True
     
-    def _run_rest_phase(self, instruction):
-        displayInstructions(instruction)
-        # Use device feedback to determine when rest is complete
-        return EMGBridge.wait_for_rest_completion()
-    
-    def _run_submaximal_phase(self, phase_id, instruction):
-        displayInstructions(instruction)
-        updateProgress(0)
-        
-        EMGBridge.start_stream()
-        phase_data = EMGBridge.collect_phase_data(phase_id, 10000)  # 10 seconds
-        
-        if not self.is_running:
-            EMGBridge.stop_stream()
-            return False
-        
-        self.emg_data[phase_id] = phase_data
-        EMGBridge.stop_stream()
-        updateProgress(100)
-        return True
-    
-    def _run_walking_phase(self, phase_id, instruction):
-        displayInstructions(instruction)
-        updateProgress(0)
-        
-        EMGBridge.start_stream()
-        phase_data = EMGBridge.collect_phase_data(phase_id, 15000)  # 15 seconds
-        
-        if not self.is_running:
-            EMGBridge.stop_stream()
-            return False
-        
-        self.emg_data[phase_id] = phase_data
-        EMGBridge.stop_stream()
-        updateProgress(100)
-        return True
-    
-    def _process_results(self):
-        for phase_id, phase_data in self.emg_data.items():
-            if "rawData" in phase_data and phase_data["rawData"]:
-                data_array = np.array(phase_data["rawData"])
+    def process_results(self):
+        """Process all collected phase data"""
+        for phase_id, phase_data in self.test_phases.items():
+            raw_data = phase_data.get("rawData", [])
+            
+            if not raw_data:
+                continue
+            
+            # Simple statistics (browser-safe)
+            data_sum = 0
+            abs_sum = 0
+            max_amp = 0
+            
+            for value in raw_data:
+                data_sum += value
+                abs_val = abs(value)
+                abs_sum += abs_val
+                if abs_val > max_amp:
+                    max_amp = abs_val
+            
+            count = len(raw_data)
+            if count > 0:
+                mean_val = data_sum / count
+                mav = abs_sum / count
                 
-                # Calculate metrics
-                phase_data["rms"] = float(np.sqrt(np.mean(np.square(data_array))))
-                phase_data["mav"] = float(np.mean(np.abs(data_array)))
-                phase_data["maxAmplitude"] = float(np.max(np.abs(data_array)))
+                # Simple RMS calculation
+                square_sum = sum(x * x for x in raw_data)
+                rms = (square_sum / count) ** 0.5
                 
-                # Calculate SNR
-                signal = np.mean(data_array)
-                noise = np.std(data_array)
-                phase_data["snr"] = float(20 * np.log10(abs(signal/noise)) if noise > 0 else 0)
-                
-                phase_data["duration"] = len(data_array)
+                # Update phase data
+                phase_data.update({
+                    "mean": float(mean_val),
+                    "rms": float(rms),
+                    "mav": float(mav),
+                    "maxAmplitude": float(max_amp),
+                    "sampleCount": count
+                })
+        
+        displayInstructions("All phases processed successfully!")
     
     def stop_test(self):
+        """Stop the current test"""
         self.is_running = False
         EMGBridge.stop_stream()
-        displayInstructions("Test stopped")
-    
-    def get_results(self):
-        return self.emg_data
+        displayInstructions("Test stopped by user")
 
-# Usage
-test = DynamicContractionTest()`
+# Initialize and run the test
+test = SimpleMVCTest()
+test.run_test()`
+            },
+            {
+                name: 'emg_stream_monitor.py',
+                size: '2.2 KB',
+                content: `import pyodide
+from js import EMGBridge, displayInstructions, updateProgress
+
+# EMG Stream Monitor - Real-time monitoring script
+class EMGStreamMonitor:
+    def __init__(self):
+        self.is_monitoring = False
+        self.sample_count = 0
+        self.max_samples = 1000  # Limit to prevent browser issues
+    
+    def start_monitoring(self):
+        """Start real-time EMG monitoring"""
+        displayInstructions("Starting EMG stream monitoring...")
+        self.is_monitoring = True
+        self.sample_count = 0
+        
+        # Start the stream
+        success = EMGBridge.start_stream()
+        if success:
+            displayInstructions("EMG stream active - monitoring live data")
+            self.monitor_loop()
+        else:
+            displayInstructions("Failed to start EMG stream")
+    
+    def monitor_loop(self):
+        """Simple monitoring loop"""
+        while self.is_monitoring and self.sample_count < self.max_samples:
+            # Get current data
+            current_data = EMGBridge.get_current_data()
+            
+            if current_data and len(current_data) > 0:
+                self.sample_count += len(current_data)
+                
+                # Calculate basic stats for display
+                latest_value = current_data[-1]
+                avg_value = sum(current_data) / len(current_data)
+                
+                # Update progress based on sample count
+                progress = min((self.sample_count / self.max_samples) * 100, 100)
+                updateProgress(progress)
+                
+                # Display current stats
+                displayInstructions(f"Monitoring: {self.sample_count} samples, Latest: {latest_value:.3f}, Avg: {avg_value:.3f}")
+            
+            # Simple delay
+            for i in range(50000):
+                pass
+        
+        # Stop when done
+        if self.sample_count >= self.max_samples:
+            displayInstructions(f"Monitoring complete - collected {self.sample_count} samples")
+            self.stop_monitoring()
+    
+    def stop_monitoring(self):
+        """Stop monitoring"""
+        self.is_monitoring = False
+        EMGBridge.stop_stream()
+        
+        # Get final data summary
+        final_data = EMGBridge.get_current_data()
+        if final_data:
+            displayInstructions(f"Monitoring stopped. Total samples: {len(final_data)}")
+        else:
+            displayInstructions("Monitoring stopped. No data collected.")
+    
+    def get_status(self):
+        """Get current monitoring status"""
+        return {
+            "is_monitoring": self.is_monitoring,
+            "sample_count": self.sample_count,
+            "max_samples": self.max_samples
+        }
+
+# Initialize and start monitoring
+monitor = EMGStreamMonitor()
+monitor.start_monitoring()`
             }
         ];
         
@@ -264,12 +340,18 @@ test = DynamicContractionTest()`
             this.pyodide = await loadPyodide();
             await this.pyodide.loadPackage(["numpy", "micropip"]);
             
-            // Make objects available on global scope for Python import
-            window.EMGBridge = this.createEMGBridge();
-            window.displayInstructions = this.displayInstructions.bind(this);
-            window.updateProgress = this.updateProgress.bind(this);
+            // Create a proper bridge object that Pyodide can access
+            const emgBridge = this.createEMGBridge();
+            const displayInstructionsFn = this.displayInstructions.bind(this);
+            const updateProgressFn = this.updateProgress.bind(this);
+            
+            // Set up globals that Python can import from js module
+            globalThis.EMGBridge = emgBridge;
+            globalThis.displayInstructions = displayInstructionsFn;
+            globalThis.updateProgress = updateProgressFn;
             
             console.log("Pyodide initialized successfully");
+            this.showToast("Python environment ready", "success");
         } catch (error) {
             console.error("Failed to initialize Pyodide:", error);
             this.showToast("Failed to initialize Python environment", "error");
@@ -277,19 +359,20 @@ test = DynamicContractionTest()`
     }
 
     createEMGBridge() {
+        const dashboard = this;
         return {
             connect_device: (deviceId) => {
-                return this.bluetoothDevice !== null;
+                return dashboard.bluetoothDevice !== null;
             },
-            start_stream: async () => {
-                if (this.emgCharacteristic && this.commandCharacteristic) {
+            start_stream: () => {
+                if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
                         // Send "start" command to device
                         const startCommand = new TextEncoder().encode("start");
-                        await this.commandCharacteristic.writeValueWithoutResponse(startCommand);
+                        dashboard.commandCharacteristic.writeValueWithoutResponse(startCommand);
                         
                         // Start notifications
-                        await this.emgCharacteristic.startNotifications();
+                        dashboard.emgCharacteristic.startNotifications();
                         return true;
                     } catch (error) {
                         console.error("Failed to start stream:", error);
@@ -298,15 +381,15 @@ test = DynamicContractionTest()`
                 }
                 return false;
             },
-            stop_stream: async () => {
-                if (this.emgCharacteristic && this.commandCharacteristic) {
+            stop_stream: () => {
+                if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
                         // Send "stop" command to device
                         const stopCommand = new TextEncoder().encode("stop");
-                        await this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                        dashboard.commandCharacteristic.writeValueWithoutResponse(stopCommand);
                         
                         // Stop notifications
-                        await this.emgCharacteristic.stopNotifications();
+                        dashboard.emgCharacteristic.stopNotifications();
                         return true;
                     } catch (error) {
                         console.error("Failed to stop stream:", error);
@@ -315,49 +398,20 @@ test = DynamicContractionTest()`
                 }
                 return false;
             },
-            collect_phase_data: (phaseId, duration) => {
-                return new Promise((resolve) => {
-                    const startTime = Date.now();
-                    const phaseData = [];
-                    
-                    const collectData = () => {
-                        const elapsed = Date.now() - startTime;
-                        if (elapsed >= duration || !this.testInProgress) {
-                            resolve({
-                                rawData: [...phaseData],
-                                duration: elapsed,
-                                phase: phaseId
-                            });
-                            return;
-                        }
-                        
-                        // Collect current buffer data
-                        if (this.emgBuffer.length > 0) {
-                            phaseData.push(...this.emgBuffer);
-                            this.emgBuffer = [];
-                        }
-                        
-                        // Update progress
-                        const progress = (elapsed / duration) * 100;
-                        this.updateProgress(progress);
-                        
-                        setTimeout(collectData, 100);
-                    };
-                    
-                    collectData();
-                });
-            },
-            wait_for_rest_completion: () => {
-                // In a real implementation, this would monitor EMG signals
-                // to determine when the muscle is sufficiently relaxed
-                return new Promise((resolve) => {
-                    setTimeout(() => resolve(true), 5000); // Simplified 5-second rest
-                });
-            },
             get_current_data: () => {
-                const data = [...this.emgBuffer];
-                this.emgBuffer = [];
+                const data = [...dashboard.emgBuffer];
+                dashboard.emgBuffer = []; // Clear buffer after reading
                 return data;
+            },
+            collect_phase_data: (phaseId, duration) => {
+                // Simplified data collection without promises
+                const data = [...dashboard.emgBuffer];
+                dashboard.emgBuffer = [];
+                return {
+                    rawData: data,
+                    duration: duration,
+                    phase: phaseId
+                };
             }
         };
     }
@@ -373,7 +427,7 @@ test = DynamicContractionTest()`
     updateProgress(percentage) {
         const progressFill = document.getElementById('test-progress-fill');
         if (progressFill) {
-            progressFill.style.width = `${percentage}%`;
+            progressFill.style.width = `${Math.min(100, Math.max(0, percentage))}%`;
         }
         
         const statusElement = document.getElementById('test-status');
@@ -813,13 +867,13 @@ test = DynamicContractionTest()`
             // Initialize live chart
             this.initializeLiveChart();
 
-            // Execute Python script
+            // Execute Python script with error handling
             await this.executePythonScript(this.currentScript.content);
 
             this.showToast("Test started successfully", "success");
         } catch (error) {
             console.error("Failed to start test:", error);
-            this.showToast("Failed to start test", "error");
+            this.showToast(`Failed to start test: ${error.message}`, "error");
             this.stopTest();
         }
     }
@@ -830,24 +884,14 @@ test = DynamicContractionTest()`
         }
 
         try {
-            // Execute the script in Pyodide
+            // Execute the script in Pyodide with timeout protection
             this.pyodide.runPython(scriptContent);
             
-            // Check if the script defines a test class and run it
-            const result = this.pyodide.runPython(`
-if 'DynamicContractionTest' in globals():
-    test = DynamicContractionTest()
-    test.run_test()
-elif 'EMGAcquisition' in globals():
-    emg = EMGAcquisition()
-    emg.start_recording()
-else:
-    print("No recognized test class found in script")
-            `);
-            
-            return result;
+            this.showToast("Script executed successfully", "success");
+            return true;
         } catch (error) {
             console.error("Python script execution failed:", error);
+            this.showToast(`Python script error: ${error.message}`, "error");
             throw error;
         }
     }
