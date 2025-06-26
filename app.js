@@ -461,6 +461,8 @@ test.run_test()`
             },
             
             start_phase: (phaseId, duration) => {
+                console.log(`Starting phase: ${phaseId} for ${duration}ms`);
+                
                 dashboard.activeTestPhase = phaseId;
                 dashboard.phaseStartTime = Date.now();
                 
@@ -479,8 +481,6 @@ test.run_test()`
                 dashboard.currentTestData[phaseId].startTime = dashboard.phaseStartTime;
                 dashboard.currentTestData[phaseId].rawData = [];
                 
-                console.log(`Started phase: ${phaseId} for ${duration}ms`);
-                
                 // CRITICAL: Send start command to EMG device before data collection
                 if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
@@ -491,7 +491,7 @@ test.run_test()`
                         // Start notifications for EMG data
                         dashboard.emgCharacteristic.startNotifications().then(() => {
                             console.log("EMG notifications started successfully");
-                            dashboard.showToast("EMG device started", "success");
+                            dashboard.showToast(`Phase ${phaseId} started`, "success");
                         }).catch((error) => {
                             console.error("Failed to start notifications:", error);
                             dashboard.showToast("Failed to start EMG notifications", "error");
@@ -530,33 +530,68 @@ test.run_test()`
                     
                     if (currentStep >= totalSteps) {
                         clearInterval(dashboard.phaseInterval);
+                        console.log(`Phase ${phaseId} time completed, finalizing...`);
                         dashboard.finalizePhase(phaseId);
                     }
                 }, updateInterval);
             },
 
-            
+
             schedule_next_phase: (callbackName) => {
+                console.log(`Scheduling callback: ${callbackName}`);
+                
                 // Store callback by name to avoid proxy issues
                 dashboard.phaseCompleteCallback = () => {
+                    console.log(`Executing callback: ${callbackName}`);
+                    
                     // Call Python function by name through pyodide
                     try {
                         if (callbackName === "phase_completed") {
+                            // Check if test object exists and call phase_completed
                             dashboard.pyodide.runPython(`
-if 'test' in globals():
-    test.phase_completed()
-`);
+            try:
+                if 'test' in globals() and hasattr(test, 'phase_completed'):
+                    print(f"Calling test.phase_completed(), current phase: {test.current_phase_index}")
+                    test.phase_completed()
+                else:
+                    print("ERROR: test object or phase_completed method not found")
+                    print("Available objects:", [name for name in globals().keys() if not name.startswith('_')])
+            except Exception as e:
+                print(f"Python callback error: {e}")
+                import traceback
+                traceback.print_exc()
+            `);
+                        } else if (callbackName === "start_next_phase_delayed") {
+                            dashboard.pyodide.runPython(`
+            try:
+                if 'test' in globals() and hasattr(test, 'start_next_phase_delayed'):
+                    print("Calling test.start_next_phase_delayed()")
+                    test.start_next_phase_delayed()
+                else:
+                    print("ERROR: start_next_phase_delayed not found")
+            except Exception as e:
+                print(f"Python delayed callback error: {e}")
+                import traceback
+                traceback.print_exc()
+            `);
                         } else if (callbackName === "monitoring_complete") {
                             dashboard.pyodide.runPython(`
-if 'monitor' in globals():
-    monitor.monitoring_complete()
-`);
+            try:
+                if 'monitor' in globals():
+                    monitor.monitoring_complete()
+                else:
+                    print("ERROR: monitor object not found")
+            except Exception as e:
+                print(f"Monitor callback error: {e}")
+            `);
                         }
                     } catch (error) {
                         console.error("Error calling Python callback:", error);
+                        dashboard.showToast(`Callback error: ${error.message}`, "error");
                     }
                 };
             },
+
             
             finalize_phase: (phaseId) => {
                 if (dashboard.currentTestData[phaseId]) {
@@ -645,6 +680,8 @@ if 'monitor' in globals():
     }
 
     finalizePhase(phaseId) {
+        console.log(`Finalizing phase: ${phaseId}`);
+        
         if (!this.currentTestData[phaseId]) {
             console.error(`Phase data not found for phaseId: ${phaseId}`);
             this.showToast(`Phase ${phaseId} data not found`, "error");
@@ -683,54 +720,14 @@ if 'monitor' in globals():
             const mav = absSum / rawData.length;
             const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
             
-            // Store basic metrics
+            // Store metrics
             this.currentTestData[phaseId].mean = mean;
             this.currentTestData[phaseId].mav = mav;
             this.currentTestData[phaseId].rms = rms;
             this.currentTestData[phaseId].maxAmplitude = maxAmp;
             this.currentTestData[phaseId].sampleCount = rawData.length;
             
-            // === ADVANCED EMG METRICS ===
-            
-            // 1. Zero Crossings (ZC)
-            let zeroCrossings = 0;
-            for (let i = 1; i < rawData.length; i++) {
-                if ((rawData[i] >= 0 && rawData[i-1] < 0) || (rawData[i] < 0 && rawData[i-1] >= 0)) {
-                    zeroCrossings++;
-                }
-            }
-            
-            // 2. Slope Sign Changes (SSC)
-            let slopeSignChanges = 0;
-            if (rawData.length >= 3) {
-                for (let i = 1; i < rawData.length - 1; i++) {
-                    const slope1 = rawData[i] - rawData[i-1];
-                    const slope2 = rawData[i+1] - rawData[i];
-                    if ((slope1 > 0 && slope2 < 0) || (slope1 < 0 && slope2 > 0)) {
-                        slopeSignChanges++;
-                    }
-                }
-            }
-            
-            // 3. Willison Amplitude (WAMP)
-            const wampThreshold = maxAmp * 0.05; // 5% of max amplitude
-            let wamp = 0;
-            for (let i = 1; i < rawData.length; i++) {
-                if (Math.abs(rawData[i] - rawData[i-1]) > wampThreshold) {
-                    wamp++;
-                }
-            }
-            
-            // 4. Integrated EMG (IEMG)
-            const iemg = absSum;
-            
-            // Store advanced metrics
-            this.currentTestData[phaseId].zeroCrossings = zeroCrossings;
-            this.currentTestData[phaseId].slopeSignChanges = slopeSignChanges;
-            this.currentTestData[phaseId].wamp = wamp;
-            this.currentTestData[phaseId].iemg = iemg;
-            
-            console.log(`Phase ${phaseId} completed: ${rawData.length} samples, RMS: ${rms.toFixed(3)}`);
+            console.log(`Phase ${phaseId} metrics - RMS: ${rms.toFixed(3)}, MAV: ${mav.toFixed(3)}, Max: ${maxAmp.toFixed(2)}`);
             
         } else {
             console.warn(`No EMG data collected for phase: ${phaseId}`);
@@ -738,8 +735,7 @@ if 'monitor' in globals():
             
             // Set default values to prevent crashes
             const defaultMetrics = {
-                mean: 0, mav: 0, rms: 0, maxAmplitude: 0, sampleCount: 0,
-                zeroCrossings: 0, slopeSignChanges: 0, wamp: 0, iemg: 0
+                mean: 0, mav: 0, rms: 0, maxAmplitude: 0, sampleCount: 0
             };
             
             Object.assign(this.currentTestData[phaseId], defaultMetrics);
@@ -748,11 +744,18 @@ if 'monitor' in globals():
         this.activeTestPhase = null;
         this.updateProgress(100);
         
-        // Call the callback if set
+        // CRITICAL: Call the callback to proceed to next phase
+        console.log(`Phase ${phaseId} finalized, calling callback...`);
         if (this.phaseCompleteCallback) {
-            setTimeout(this.phaseCompleteCallback, 500);
+            setTimeout(() => {
+                console.log("Executing phase complete callback");
+                this.phaseCompleteCallback();
+            }, 500);
+        } else {
+            console.error("No phase complete callback set!");
         }
     }
+
 
 
     displayInstructions(instruction) {
