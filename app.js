@@ -724,7 +724,7 @@ test.run_test()`
                 } else {
                     console.error("No phase complete callback set!");
                 }
-            }
+            },
 
             
             finalize_test: () => {
