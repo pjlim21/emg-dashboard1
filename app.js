@@ -227,6 +227,124 @@ class ContinuousMonitor:
 monitor = ContinuousMonitor()
 monitor.start_monitoring()`
             }
+
+{
+    name: 'fatigue_assessment.py',
+    size: '4.2 KB',
+    content: `import js
+
+# Fatigue Assessment Protocol
+class FatigueAssessment:
+    def __init__(self):
+        self.test_phases = ["baseline", "initial_mvc", "fatigue_induction", "recovery", "final_mvc"]
+        self.current_phase_index = 0
+        self.is_running = False
+        self.mvc_reference = 0
+        
+    def run_test(self):
+        """Start the fatigue assessment protocol"""
+        js.displayInstructions("Starting Fatigue Assessment Protocol...")
+        self.is_running = True
+        self.current_phase_index = 0
+        
+        # Initialize session with all phases
+        js.EMGBridge.initialize_session({
+            "baseline": {
+                "name": "Baseline Rest", 
+                "duration": 10000,
+                "instruction": "Relax completely - no muscle tension"
+            },
+            "initial_mvc": {
+                "name": "Initial Maximum Voluntary Contraction", 
+                "duration": 5000,
+                "instruction": "Contract as hard as possible!"
+            },
+            "fatigue_induction": {
+                "name": "Fatigue Induction Phase", 
+                "duration": 30000,
+                "instruction": "Maintain 50% effort - steady contraction"
+            },
+            "recovery": {
+                "name": "Recovery Assessment", 
+                "duration": 15000,
+                "instruction": "Gradually relax from contraction to rest"
+            },
+            "final_mvc": {
+                "name": "Post-Fatigue Maximum Contraction", 
+                "duration": 5000,
+                "instruction": "Final maximum effort - give everything!"
+            }
+        })
+        
+        # Start first phase
+        self.start_next_phase()
+        return True
+    
+    def start_next_phase(self):
+        """Progress to next phase in protocol"""
+        if self.current_phase_index >= len(self.test_phases):
+            self.complete_test()
+            return
+            
+        phase_id = self.test_phases[self.current_phase_index]
+        phase_info = {
+            "baseline": ("Relax completely - no muscle tension", 10000),
+            "initial_mvc": ("Contract as hard as possible!", 5000),
+            "fatigue_induction": ("Maintain 50% effort - steady contraction", 30000),
+            "recovery": ("Gradually relax from contraction to rest", 15000),
+            "final_mvc": ("Final maximum effort - give everything!", 5000)
+        }
+        
+        instruction, duration = phase_info[phase_id]
+        js.displayInstructions(f"Phase {self.current_phase_index + 1}/5: {instruction}")
+        
+        # Start the phase
+        js.EMGBridge.start_phase(phase_id, duration)
+        
+        # Schedule next phase transition
+        js.EMGBridge.schedule_next_phase("phase_completed")
+    
+    def phase_completed(self):
+        """Called when a phase completes"""
+        if not self.is_running:
+            return
+            
+        completed_phase = self.test_phases[self.current_phase_index]
+        
+        # Store MVC reference from initial contraction
+        if completed_phase == "initial_mvc":
+            # This will be calculated in JavaScript finalizePhase
+            js.displayInstructions("Initial MVC completed - reference established")
+        
+        self.current_phase_index += 1
+        
+        # Brief pause between phases
+        js.EMGBridge.schedule_next_phase("start_next_phase_delayed")
+        
+    def start_next_phase_delayed(self):
+        """Start next phase after brief delay"""
+        self.start_next_phase()
+    
+    def complete_test(self):
+        """Complete the fatigue assessment"""
+        js.displayInstructions("Fatigue Assessment Complete! Analyzing results...")
+        js.EMGBridge.finalize_test()
+        self.is_running = False
+        
+        # Calculate fatigue index (will be done in JavaScript)
+        js.displayInstructions("Protocol finished - fatigue metrics calculated")
+    
+    def stop_test(self):
+        """Emergency stop"""
+        self.is_running = False
+        js.EMGBridge.stop_stream()
+        js.displayInstructions("Fatigue assessment stopped by user")
+
+# Initialize and run
+test = FatigueAssessment()
+test.run_test()`
+}
+
         ];
         
         this.init();
@@ -520,7 +638,72 @@ if 'monitor' in globals():
                 this.currentTestData[phaseId].sampleCount = rawData.length;
             }
         }
+        // Add these calculations after the existing basic metrics (around line 280)
+    if (rawData.length > 0) {
+        // Existing calculations (mean, mav, rms, maxAmplitude)...
         
+        // === ADVANCED EMG METRICS ===
+        
+        // 1. Zero Crossings (ZC) - Count sign changes
+        let zeroCrossings = 0;
+        for (let i = 1; i < rawData.length; i++) {
+            if ((rawData[i] >= 0 && rawData[i-1] < 0) || (rawData[i] < 0 && rawData[i-1] >= 0)) {
+                zeroCrossings++;
+            }
+        }
+        
+        // 2. Slope Sign Changes (SSC) - Count slope direction changes  
+        let slopeSignChanges = 0;
+        if (rawData.length >= 3) {
+            for (let i = 1; i < rawData.length - 1; i++) {
+                const slope1 = rawData[i] - rawData[i-1];
+                const slope2 = rawData[i+1] - rawData[i];
+                if ((slope1 > 0 && slope2 < 0) || (slope1 < 0 && slope2 > 0)) {
+                    slopeSignChanges++;
+                }
+            }
+        }
+        
+        // 3. Willison Amplitude (WAMP) - Count amplitude changes above threshold
+        const wampThreshold = maxAmp * 0.05; // 5% of max amplitude as threshold
+        let wamp = 0;
+        for (let i = 1; i < rawData.length; i++) {
+            if (Math.abs(rawData[i] - rawData[i-1]) > wampThreshold) {
+                wamp++;
+            }
+        }
+        
+        // 4. Integrated EMG (IEMG) - Cumulative absolute amplitude
+        const iemg = absSum; // This is essentially the same as our absSum calculation
+        
+        // 5. Frequency-based metrics (derived from time domain)
+        // Mean Frequency estimation using zero crossings
+        const samplingRate = 1000; // Hz, as defined in EMGAcquisition class
+        const estimatedMeanFreq = (zeroCrossings / 2) / (rawData.length / samplingRate);
+        
+        // 6. Signal-to-Noise Ratio approximation
+        // Using baseline phase as noise reference (if available)
+        const snrEstimate = maxAmp / (rms * 0.1); // Simplified SNR calculation
+        
+        // Store all advanced metrics
+        this.currentTestData[phaseId].zeroCrossings = zeroCrossings;
+        this.currentTestData[phaseId].slopeSignChanges = slopeSignChanges;  
+        this.currentTestData[phaseId].wamp = wamp;
+        this.currentTestData[phaseId].iemg = iemg;
+        this.currentTestData[phaseId].estimatedMeanFreq = estimatedMeanFreq;
+        this.currentTestData[phaseId].snr = snrEstimate;
+        
+        // Calculate fatigue index if we have both initial and final MVC phases
+        if (phaseId === 'final_mvc' && this.currentTestData['initial_mvc']) {
+            const initialMVC = this.currentTestData['initial_mvc'].maxAmplitude;
+            const finalMVC = this.currentTestData[phaseId].maxAmplitude;
+            const fatigueIndex = ((initialMVC - finalMVC) / initialMVC) * 100;
+            this.currentTestData[phaseId].fatigueIndex = fatigueIndex;
+            
+            console.log(`Fatigue Index: ${fatigueIndex.toFixed(2)}% strength loss`);
+        }
+    }
+
         this.activeTestPhase = null;
         this.updateProgress(100);
         
@@ -1561,6 +1744,89 @@ if 'monitor' in globals():
             this.showToast("Session deleted successfully", "success");
             this.navigateTo('dashboard');
         }
+    }
+    importSession(file) {
+        if (!file) {
+            this.showToast("No file selected", "error");
+            return;
+        }
+        
+        if (!file.name.endsWith('.json')) {
+            this.showToast("Please select a valid JSON file", "error");
+            return;
+        }
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const importedData = JSON.parse(e.target.result);
+                
+                // Validate imported data structure
+                if (!this.validateSessionData(importedData)) {
+                    this.showToast("Invalid session file format", "error");
+                    return;
+                }
+                
+                // Check for duplicate session ID
+                const existingSession = this.sessions.find(s => s.id === importedData.sessionInfo.id);
+                if (existingSession) {
+                    // Generate new ID to avoid conflicts
+                    importedData.sessionInfo.id = `imported-${Date.now()}`;
+                    importedData.sessionInfo.notes = `${importedData.sessionInfo.notes || ''} [IMPORTED COPY]`.trim();
+                }
+                
+                // Create session object in expected format
+                const newSession = {
+                    id: importedData.sessionInfo.id,
+                    subjectId: importedData.sessionInfo.subjectId,
+                    muscleGroup: importedData.sessionInfo.muscleGroup,
+                    electrodeType: importedData.sessionInfo.electrodeType,
+                    notes: importedData.sessionInfo.notes,
+                    timestamp: importedData.sessionInfo.timestamp,
+                    testData: importedData.testData,
+                    importedAt: new Date().toISOString()
+                };
+                
+                // Add to sessions array
+                this.sessions.push(newSession);
+                this.filteredSessions = [...this.sessions];
+                
+                // Save to localStorage
+                localStorage.setItem('emg-sessions', JSON.stringify(this.sessions));
+                
+                // Re-render dashboard
+                this.renderDashboard();
+                
+                this.showToast(`Session imported: ${newSession.subjectId}`, "success");
+                
+            } catch (error) {
+                console.error("Import failed:", error);
+                this.showToast("Failed to import session - invalid file format", "error");
+            }
+        };
+        
+        reader.readAsText(file);
+    }
+    
+    validateSessionData(data) {
+        // Check required structure
+        if (!data || !data.sessionInfo || !data.testData) {
+            return false;
+        }
+        
+        const required = ['id', 'subjectId', 'muscleGroup', 'timestamp'];
+        for (const field of required) {
+            if (!data.sessionInfo[field]) {
+                return false;
+            }
+        }
+        
+        // Validate testData structure
+        if (typeof data.testData !== 'object') {
+            return false;
+        }
+        
+        return true;
     }
 
     renderComparisonView() {
