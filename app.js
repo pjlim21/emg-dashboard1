@@ -534,7 +534,7 @@ test.run_test()`
                     }
                 }, updateInterval);
             },
-,
+
             
             schedule_next_phase: (callbackName) => {
                 // Store callback by name to avoid proxy issues
