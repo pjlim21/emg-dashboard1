@@ -447,8 +447,23 @@ test.run_test()`
             },
             
             initialize_session: (phases) => {
+                console.log("Raw phases received:", phases);
+                
+                // Convert Python dict to JavaScript object if needed
+                let phasesObj = phases;
+                if (dashboard.pyodide && phases && phases.toJs) {
+                    phasesObj = phases.toJs();
+                }
+                
+                console.log("Converted phases:", phasesObj);
+                console.log("Phases keys:", Object.keys(phasesObj || {}));
+                
                 dashboard.currentTestData = {};
-                for (const [phaseId, phaseInfo] of Object.entries(phases)) {
+                
+                // Handle both object and Map types
+                const entries = phasesObj instanceof Map ? phasesObj.entries() : Object.entries(phasesObj || {});
+                
+                for (const [phaseId, phaseInfo] of entries) {
                     dashboard.currentTestData[phaseId] = {
                         name: phaseInfo.name,
                         duration: phaseInfo.duration,
@@ -457,8 +472,10 @@ test.run_test()`
                         endTime: null
                     };
                 }
-                console.log("Session initialized with phases:", Object.keys(phases));
+                
+                console.log("Session initialized with phases:", Object.keys(dashboard.currentTestData));
             },
+
             
             start_phase: (phaseId, duration) => {
                 console.log(`Starting phase: ${phaseId} for ${duration}ms`);
@@ -477,11 +494,14 @@ test.run_test()`
                     };
                 }
                 
-                // Ensure rawData is initialized
+                // Ensure rawData is initialized and cleared
                 dashboard.currentTestData[phaseId].startTime = dashboard.phaseStartTime;
                 dashboard.currentTestData[phaseId].rawData = [];
                 
-                // CRITICAL: Send start command to EMG device before data collection
+                // Clear EMG buffer
+                dashboard.emgBuffer = [];
+                
+                // CRITICAL: Send start command to EMG device
                 if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
                     try {
                         // Send "start" command to device
@@ -522,9 +542,17 @@ test.run_test()`
                     const progress = (currentStep / totalSteps) * 100;
                     dashboard.updateProgress(Math.min(progress, 100));
                     
-                    // Collect EMG data if available
+                    // Collect EMG data if available, with data validation
                     if (dashboard.emgBuffer.length > 0) {
-                        dashboard.currentTestData[phaseId].rawData.push(...dashboard.emgBuffer);
+                        // Filter out invalid values before adding to rawData
+                        const validData = dashboard.emgBuffer.filter(value => 
+                            typeof value === 'number' && !isNaN(value) && isFinite(value)
+                        );
+                        
+                        if (validData.length > 0) {
+                            dashboard.currentTestData[phaseId].rawData.push(...validData);
+                        }
+                        
                         dashboard.emgBuffer = [];
                     }
                     
@@ -535,6 +563,7 @@ test.run_test()`
                     }
                 }, updateInterval);
             },
+
 
 
             schedule_next_phase: (callbackName) => {
@@ -548,11 +577,12 @@ test.run_test()`
                     try {
                         if (callbackName === "phase_completed") {
                             // Check if test object exists and call phase_completed
-                            dashboard.pyodide.runPython(`
+                            const result = dashboard.pyodide.runPython(`
             try:
                 if 'test' in globals() and hasattr(test, 'phase_completed'):
                     print(f"Calling test.phase_completed(), current phase: {test.current_phase_index}")
                     test.phase_completed()
+                    print(f"phase_completed() executed, new phase index: {test.current_phase_index}")
                 else:
                     print("ERROR: test object or phase_completed method not found")
                     print("Available objects:", [name for name in globals().keys() if not name.startswith('_')])
@@ -567,6 +597,7 @@ test.run_test()`
                 if 'test' in globals() and hasattr(test, 'start_next_phase_delayed'):
                     print("Calling test.start_next_phase_delayed()")
                     test.start_next_phase_delayed()
+                    print("start_next_phase_delayed() executed")
                 else:
                     print("ERROR: start_next_phase_delayed not found")
             except Exception as e:
@@ -592,42 +623,109 @@ test.run_test()`
                 };
             },
 
+
             
-            finalize_phase: (phaseId) => {
-                if (dashboard.currentTestData[phaseId]) {
-                    dashboard.currentTestData[phaseId].endTime = Date.now();
+            finalizePhase(phaseId) {
+                console.log(`Finalizing phase: ${phaseId}`);
+                
+                if (!this.currentTestData[phaseId]) {
+                    console.error(`Phase data not found for phaseId: ${phaseId}`);
+                    this.showToast(`Phase ${phaseId} data not found`, "error");
+                    return;
+                }
+                
+                this.currentTestData[phaseId].endTime = Date.now();
+                
+                // Send stop command to EMG device
+                if (this.commandCharacteristic) {
+                    try {
+                        const stopCommand = new TextEncoder().encode("stop");
+                        this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                        console.log("Stop command sent to EMG device");
+                    } catch (error) {
+                        console.error("Failed to send stop command:", error);
+                    }
+                }
+                
+                // Safe access to rawData with data cleaning
+                const rawData = this.currentTestData[phaseId].rawData || [];
+                
+                console.log(`Processing phase ${phaseId}: ${rawData.length} samples collected`);
+                
+                if (rawData && rawData.length > 0) {
+                    // Clean the data - remove invalid values
+                    const cleanData = rawData.filter(value => {
+                        return typeof value === 'number' && 
+                               !isNaN(value) && 
+                               isFinite(value) && 
+                               Math.abs(value) < 1e6; // Remove extremely large values
+                    });
                     
-                    const rawData = dashboard.currentTestData[phaseId].rawData;
-                    if (rawData.length > 0) {
-                        // Calculate basic metrics
+                    console.log(`Cleaned data: ${cleanData.length} valid samples from ${rawData.length} total`);
+                    
+                    if (cleanData.length > 0) {
+                        // Calculate basic metrics with cleaned data
                         let sum = 0, absSum = 0, maxAmp = 0;
-                        for (const value of rawData) {
+                        for (const value of cleanData) {
                             sum += value;
                             const absVal = Math.abs(value);
                             absSum += absVal;
                             if (absVal > maxAmp) maxAmp = absVal;
                         }
                         
-                        const mean = sum / rawData.length;
-                        const mav = absSum / rawData.length;
-                        const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
+                        const mean = sum / cleanData.length;
+                        const mav = absSum / cleanData.length;
+                        const rms = Math.sqrt(cleanData.reduce((acc, val) => acc + val * val, 0) / cleanData.length);
                         
-                        dashboard.currentTestData[phaseId].mean = mean;
-                        dashboard.currentTestData[phaseId].mav = mav;
-                        dashboard.currentTestData[phaseId].rms = rms;
-                        dashboard.currentTestData[phaseId].maxAmplitude = maxAmp;
-                        dashboard.currentTestData[phaseId].sampleCount = rawData.length;
+                        // Store metrics
+                        this.currentTestData[phaseId].mean = mean;
+                        this.currentTestData[phaseId].mav = mav;
+                        this.currentTestData[phaseId].rms = rms;
+                        this.currentTestData[phaseId].maxAmplitude = maxAmp;
+                        this.currentTestData[phaseId].sampleCount = cleanData.length;
+                        this.currentTestData[phaseId].validSampleCount = cleanData.length;
+                        this.currentTestData[phaseId].totalSampleCount = rawData.length;
+                        
+                        console.log(`Phase ${phaseId} metrics - RMS: ${rms.toFixed(3)}, MAV: ${mav.toFixed(3)}, Max: ${maxAmp.toFixed(2)}`);
+                        
+                    } else {
+                        console.warn(`No valid EMG data after cleaning for phase: ${phaseId}`);
+                        this.showToast(`Warning: No valid data for ${phaseId}`, "warning");
+                        
+                        // Set zero values instead of undefined
+                        const zeroMetrics = {
+                            mean: 0, mav: 0, rms: 0, maxAmplitude: 0, 
+                            sampleCount: 0, validSampleCount: 0, totalSampleCount: rawData.length
+                        };
+                        Object.assign(this.currentTestData[phaseId], zeroMetrics);
                     }
+                } else {
+                    console.warn(`No EMG data collected for phase: ${phaseId}`);
+                    this.showToast(`Warning: No data collected for ${phaseId}`, "warning");
+                    
+                    // Set zero values
+                    const zeroMetrics = {
+                        mean: 0, mav: 0, rms: 0, maxAmplitude: 0, 
+                        sampleCount: 0, validSampleCount: 0, totalSampleCount: 0
+                    };
+                    Object.assign(this.currentTestData[phaseId], zeroMetrics);
                 }
                 
-                dashboard.activeTestPhase = null;
-                dashboard.updateProgress(100);
+                this.activeTestPhase = null;
+                this.updateProgress(100);
                 
-                // Call the callback if set
-                if (dashboard.phaseCompleteCallback) {
-                    setTimeout(dashboard.phaseCompleteCallback, 500);
+                // CRITICAL: Call the callback to proceed to next phase
+                console.log(`Phase ${phaseId} finalized, calling callback...`);
+                if (this.phaseCompleteCallback) {
+                    setTimeout(() => {
+                        console.log("Executing phase complete callback");
+                        this.phaseCompleteCallback();
+                    }, 500);
+                } else {
+                    console.error("No phase complete callback set!");
                 }
-            },
+            }
+
             
             finalize_test: () => {
                 // Ensure any remaining data is saved
