@@ -779,16 +779,7 @@ test.run_test()`
         
         this.currentTestData[phaseId].endTime = Date.now();
         
-        // Send stop command to EMG device
-        if (this.commandCharacteristic) {
-            try {
-                const stopCommand = new TextEncoder().encode("stop");
-                this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
-                console.log("Stop command sent to EMG device");
-            } catch (error) {
-                console.error("Failed to send stop command:", error);
-            }
-        }
+        
         
         // Safe access to rawData with proper initialization
         const rawData = this.currentTestData[phaseId].rawData || [];
