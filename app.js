@@ -25,7 +25,7 @@ class EMGDashboard {
         this.testStartTime = null;
         this.currentTestData = {};
         this.activeTestPhase = null;
-        this.phaseStartTime = null;
+        this.phaseTime = null;
         
         // UUIDs for BLE EMG device
         this.EMG_SERVICE_UUID = 'df1a0863-f02f-49ba-bf55-3b56c6bcb398';
@@ -60,14 +60,14 @@ class EMGAcquisition:
             js.displayInstructions("Failed to connect to device")
             return False
     
-    def start_recording(self):
-        js.displayInstructions("Starting EMG recording...")
+    def _recording(self):
+        js.displayInstructions("ing EMG recording...")
         self.is_recording = True
         self.session_data = {
             "acquisition": {
                 "name": "Basic Acquisition",
                 "rawData": [],
-                "startTime": js.EMGBridge.get_timestamp()
+                "Time": js.EMGBridge.get_timestamp()
             }
         }
         
@@ -464,19 +464,50 @@ test.run_test()`
                 dashboard.activeTestPhase = phaseId;
                 dashboard.phaseStartTime = Date.now();
                 
-                if (dashboard.currentTestData[phaseId]) {
-                    dashboard.currentTestData[phaseId].startTime = dashboard.phaseStartTime;
-                    dashboard.currentTestData[phaseId].rawData = [];
+                // Initialize phase data with empty rawData array
+                if (!dashboard.currentTestData[phaseId]) {
+                    dashboard.currentTestData[phaseId] = {
+                        name: phaseId,
+                        duration: duration,
+                        rawData: [],
+                        startTime: null,
+                        endTime: null
+                    };
                 }
                 
+                // Ensure rawData is initialized
+                dashboard.currentTestData[phaseId].startTime = dashboard.phaseStartTime;
+                dashboard.currentTestData[phaseId].rawData = [];
+                
                 console.log(`Started phase: ${phaseId} for ${duration}ms`);
+                
+                // CRITICAL: Send start command to EMG device before data collection
+                if (dashboard.commandCharacteristic && dashboard.emgCharacteristic) {
+                    try {
+                        // Send "start" command to device
+                        const startCommand = new TextEncoder().encode("start");
+                        dashboard.commandCharacteristic.writeValueWithoutResponse(startCommand);
+                        
+                        // Start notifications for EMG data
+                        dashboard.emgCharacteristic.startNotifications().then(() => {
+                            console.log("EMG notifications started successfully");
+                            dashboard.showToast("EMG device started", "success");
+                        }).catch((error) => {
+                            console.error("Failed to start notifications:", error);
+                            dashboard.showToast("Failed to start EMG notifications", "error");
+                        });
+                    } catch (error) {
+                        console.error("Failed to send start command:", error);
+                        dashboard.showToast("Failed to send start command to device", "error");
+                    }
+                }
                 
                 // Clear any existing intervals
                 if (dashboard.phaseInterval) {
                     clearInterval(dashboard.phaseInterval);
                 }
                 
-                // Set up progress updates
+                // Set up progress updates and data collection
                 const updateInterval = 100; // Update every 100ms
                 const totalSteps = duration / updateInterval;
                 let currentStep = 0;
@@ -503,6 +534,7 @@ test.run_test()`
                     }
                 }, updateInterval);
             },
+,
             
             schedule_next_phase: (callbackName) => {
                 // Store callback by name to avoid proxy issues
@@ -615,13 +647,27 @@ if 'monitor' in globals():
     finalizePhase(phaseId) {
         if (!this.currentTestData[phaseId]) {
             console.error(`Phase data not found for phaseId: ${phaseId}`);
+            this.showToast(`Phase ${phaseId} data not found`, "error");
             return;
         }
         
         this.currentTestData[phaseId].endTime = Date.now();
         
-        // Add safety check for rawData
+        // Send stop command to EMG device
+        if (this.commandCharacteristic) {
+            try {
+                const stopCommand = new TextEncoder().encode("stop");
+                this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                console.log("Stop command sent to EMG device");
+            } catch (error) {
+                console.error("Failed to send stop command:", error);
+            }
+        }
+        
+        // Safe access to rawData with proper initialization
         const rawData = this.currentTestData[phaseId].rawData || [];
+        
+        console.log(`Processing phase ${phaseId}: ${rawData.length} samples collected`);
         
         if (rawData && rawData.length > 0) {
             // Calculate basic metrics
@@ -637,93 +683,68 @@ if 'monitor' in globals():
             const mav = absSum / rawData.length;
             const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
             
+            // Store basic metrics
             this.currentTestData[phaseId].mean = mean;
             this.currentTestData[phaseId].mav = mav;
             this.currentTestData[phaseId].rms = rms;
             this.currentTestData[phaseId].maxAmplitude = maxAmp;
             this.currentTestData[phaseId].sampleCount = rawData.length;
-        } else {
-            console.warn(`No EMG data collected for phase: ${phaseId}`);
-            // Set default values
-            this.currentTestData[phaseId].mean = 0;
-            this.currentTestData[phaseId].mav = 0;
-            this.currentTestData[phaseId].rms = 0;
-            this.currentTestData[phaseId].maxAmplitude = 0;
-            this.currentTestData[phaseId].sampleCount = 0;
-        }
-        
-        this.activeTestPhase = null;
-        this.updateProgress(100);
-        
-        if (this.phaseCompleteCallback) {
-            setTimeout(this.phaseCompleteCallback, 500);
-        }
-        // Add these calculations after the existing basic metrics (around line 280)
-    if (rawData.length > 0) {
-        // Existing calculations (mean, mav, rms, maxAmplitude)...
-        
-        // === ADVANCED EMG METRICS ===
-        
-        // 1. Zero Crossings (ZC) - Count sign changes
-        let zeroCrossings = 0;
-        for (let i = 1; i < rawData.length; i++) {
-            if ((rawData[i] >= 0 && rawData[i-1] < 0) || (rawData[i] < 0 && rawData[i-1] >= 0)) {
-                zeroCrossings++;
-            }
-        }
-        
-        // 2. Slope Sign Changes (SSC) - Count slope direction changes  
-        let slopeSignChanges = 0;
-        if (rawData.length >= 3) {
-            for (let i = 1; i < rawData.length - 1; i++) {
-                const slope1 = rawData[i] - rawData[i-1];
-                const slope2 = rawData[i+1] - rawData[i];
-                if ((slope1 > 0 && slope2 < 0) || (slope1 < 0 && slope2 > 0)) {
-                    slopeSignChanges++;
+            
+            // === ADVANCED EMG METRICS ===
+            
+            // 1. Zero Crossings (ZC)
+            let zeroCrossings = 0;
+            for (let i = 1; i < rawData.length; i++) {
+                if ((rawData[i] >= 0 && rawData[i-1] < 0) || (rawData[i] < 0 && rawData[i-1] >= 0)) {
+                    zeroCrossings++;
                 }
             }
-        }
-        
-        // 3. Willison Amplitude (WAMP) - Count amplitude changes above threshold
-        const wampThreshold = maxAmp * 0.05; // 5% of max amplitude as threshold
-        let wamp = 0;
-        for (let i = 1; i < rawData.length; i++) {
-            if (Math.abs(rawData[i] - rawData[i-1]) > wampThreshold) {
-                wamp++;
-            }
-        }
-        
-        // 4. Integrated EMG (IEMG) - Cumulative absolute amplitude
-        const iemg = absSum; // This is essentially the same as our absSum calculation
-        
-        // 5. Frequency-based metrics (derived from time domain)
-        // Mean Frequency estimation using zero crossings
-        const samplingRate = 1000; // Hz, as defined in EMGAcquisition class
-        const estimatedMeanFreq = (zeroCrossings / 2) / (rawData.length / samplingRate);
-        
-        // 6. Signal-to-Noise Ratio approximation
-        // Using baseline phase as noise reference (if available)
-        const snrEstimate = maxAmp / (rms * 0.1); // Simplified SNR calculation
-        
-        // Store all advanced metrics
-        this.currentTestData[phaseId].zeroCrossings = zeroCrossings;
-        this.currentTestData[phaseId].slopeSignChanges = slopeSignChanges;  
-        this.currentTestData[phaseId].wamp = wamp;
-        this.currentTestData[phaseId].iemg = iemg;
-        this.currentTestData[phaseId].estimatedMeanFreq = estimatedMeanFreq;
-        this.currentTestData[phaseId].snr = snrEstimate;
-        
-        // Calculate fatigue index if we have both initial and final MVC phases
-        if (phaseId === 'final_mvc' && this.currentTestData['initial_mvc']) {
-            const initialMVC = this.currentTestData['initial_mvc'].maxAmplitude;
-            const finalMVC = this.currentTestData[phaseId].maxAmplitude;
-            const fatigueIndex = ((initialMVC - finalMVC) / initialMVC) * 100;
-            this.currentTestData[phaseId].fatigueIndex = fatigueIndex;
             
-            console.log(`Fatigue Index: ${fatigueIndex.toFixed(2)}% strength loss`);
+            // 2. Slope Sign Changes (SSC)
+            let slopeSignChanges = 0;
+            if (rawData.length >= 3) {
+                for (let i = 1; i < rawData.length - 1; i++) {
+                    const slope1 = rawData[i] - rawData[i-1];
+                    const slope2 = rawData[i+1] - rawData[i];
+                    if ((slope1 > 0 && slope2 < 0) || (slope1 < 0 && slope2 > 0)) {
+                        slopeSignChanges++;
+                    }
+                }
+            }
+            
+            // 3. Willison Amplitude (WAMP)
+            const wampThreshold = maxAmp * 0.05; // 5% of max amplitude
+            let wamp = 0;
+            for (let i = 1; i < rawData.length; i++) {
+                if (Math.abs(rawData[i] - rawData[i-1]) > wampThreshold) {
+                    wamp++;
+                }
+            }
+            
+            // 4. Integrated EMG (IEMG)
+            const iemg = absSum;
+            
+            // Store advanced metrics
+            this.currentTestData[phaseId].zeroCrossings = zeroCrossings;
+            this.currentTestData[phaseId].slopeSignChanges = slopeSignChanges;
+            this.currentTestData[phaseId].wamp = wamp;
+            this.currentTestData[phaseId].iemg = iemg;
+            
+            console.log(`Phase ${phaseId} completed: ${rawData.length} samples, RMS: ${rms.toFixed(3)}`);
+            
+        } else {
+            console.warn(`No EMG data collected for phase: ${phaseId}`);
+            this.showToast(`Warning: No data collected for ${phaseId}`, "warning");
+            
+            // Set default values to prevent crashes
+            const defaultMetrics = {
+                mean: 0, mav: 0, rms: 0, maxAmplitude: 0, sampleCount: 0,
+                zeroCrossings: 0, slopeSignChanges: 0, wamp: 0, iemg: 0
+            };
+            
+            Object.assign(this.currentTestData[phaseId], defaultMetrics);
         }
-    }
-
+        
         this.activeTestPhase = null;
         this.updateProgress(100);
         
@@ -732,6 +753,7 @@ if 'monitor' in globals():
             setTimeout(this.phaseCompleteCallback, 500);
         }
     }
+
 
     displayInstructions(instruction) {
         const instructionElement = document.getElementById('current-instruction');
