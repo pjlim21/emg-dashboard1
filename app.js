@@ -230,16 +230,16 @@ monitor.start_monitoring()`
 
             {
                 name: 'fatigue_assessment.py',
-                size: '5.1 KB',
+                size: '5.4 KB',
                 content: `import js
 
-# Enhanced Fatigue Assessment Protocol
+# Enhanced Fatigue Assessment Protocol with Robust Error Handling
 class FatigueAssessment:
     def __init__(self):
         self.test_phases = ["baseline", "initial_mvc", "fatigue_induction", "recovery", "final_mvc"]
         self.current_phase_index = 0
         self.is_running = False
-        print("FatigueAssessment initialized")
+        print("FatigueAssessment initialized - keeping strong reference")
         
     def run_test(self):
         print("=== STARTING FATIGUE ASSESSMENT PROTOCOL ===")
@@ -309,11 +309,13 @@ class FatigueAssessment:
         js.displayInstructions(f"Phase {self.current_phase_index + 1}/5: {instruction}")
         
         # Start the phase
+        print(f"Calling EMGBridge.start_phase({phase_id}, {duration})")
         js.EMGBridge.start_phase(phase_id, duration)
         
         # Schedule callback for when phase completes
+        print(f"Scheduling phase_completed callback for {phase_id}")
         js.EMGBridge.schedule_next_phase("phase_completed")
-        print(f"Phase {phase_id} started, callback scheduled")
+        print(f"Phase {phase_id} started successfully")
     
     def phase_completed(self):
         print(f"=== PHASE_COMPLETED: Index={self.current_phase_index}, Running={self.is_running} ===")
@@ -329,16 +331,19 @@ class FatigueAssessment:
         self.current_phase_index += 1
         print(f"Incremented to phase index: {self.current_phase_index}")
         
-        # Schedule the next phase with a delay
-        print("Scheduling delayed start of next phase")
+        # Schedule the next phase with immediate execution
+        print("Scheduling start_next_phase_delayed callback")
         js.EMGBridge.schedule_next_phase("start_next_phase_delayed")
+        print("start_next_phase_delayed callback scheduled")
         
     def start_next_phase_delayed(self):
         print("=== START_NEXT_PHASE_DELAYED CALLED ===")
-        # Small delay then start next phase
-        import time
-        time.sleep(0.1)  # 100ms delay
+        print(f"Current state: Index={self.current_phase_index}, Running={self.is_running}")
+        
+        # Immediately start next phase
+        print("Calling start_next_phase() from delayed callback")
         self.start_next_phase()
+        print("start_next_phase() completed from delayed callback")
     
     def complete_test(self):
         print("=== COMPLETING FATIGUE ASSESSMENT ===")
@@ -353,14 +358,23 @@ class FatigueAssessment:
         js.EMGBridge.stop_stream()
         js.displayInstructions("Test stopped")
 
-# Create and start test
+# Create test instance and keep strong reference in global scope
 print("Creating FatigueAssessment instance...")
 test = FatigueAssessment()
+
+# Keep an additional strong reference to prevent garbage collection
+_test_ref = test
+
 print("Starting test...")
 result = test.run_test()
 print(f"Test started: {result}")
+
+# Ensure test object remains accessible
+print("Test object created and stored in globals")
+print(f"Test methods available: {[m for m in dir(test) if not m.startswith('_')]}")
 `
 }
+
 
 
         ];
@@ -590,12 +604,11 @@ print(f"Test started: {result}")
                 dashboard.phaseCompleteCallback = () => {
                     console.log(`EXECUTING CALLBACK: ${callbackName}`);
                     
-                    // Add a small delay to ensure phase data is fully processed
-                    setTimeout(() => {
-                        try {
-                            if (callbackName === "phase_completed") {
-                                console.log("Calling Python phase_completed method...");
-                                dashboard.pyodide.runPython(`
+                    // Execute immediately without setTimeout to prevent race conditions
+                    try {
+                        if (callbackName === "phase_completed") {
+                            console.log("Calling Python phase_completed method...");
+                            dashboard.pyodide.runPython(`
             print("=== PYTHON CALLBACK: phase_completed ===")
             if 'test' in globals() and hasattr(test, 'phase_completed'):
                 print(f"Before phase_completed: phase_index = {test.current_phase_index}")
@@ -606,32 +619,34 @@ print(f"Test started: {result}")
                 print("ERROR: test object not found in globals")
                 print("Available variables:", list(globals().keys()))
             `);
-                            } else if (callbackName === "start_next_phase_delayed") {
-                                console.log("Calling Python start_next_phase_delayed method...");
-                                dashboard.pyodide.runPython(`
+                        } else if (callbackName === "start_next_phase_delayed") {
+                            console.log("Calling Python start_next_phase_delayed method...");
+                            // CRITICAL: Execute this callback immediately
+                            dashboard.pyodide.runPython(`
             print("=== PYTHON CALLBACK: start_next_phase_delayed ===")
             if 'test' in globals() and hasattr(test, 'start_next_phase_delayed'):
-                print("Calling start_next_phase_delayed...")
+                print("About to call start_next_phase_delayed...")
                 test.start_next_phase_delayed()
                 print("start_next_phase_delayed executed successfully")
             else:
                 print("ERROR: start_next_phase_delayed method not found")
+                print("Available test methods:", [m for m in dir(test) if not m.startswith('_')] if 'test' in globals() else 'test not found')
             `);
-                            } else if (callbackName === "monitoring_complete") {
-                                dashboard.pyodide.runPython(`
+                        } else if (callbackName === "monitoring_complete") {
+                            dashboard.pyodide.runPython(`
             if 'monitor' in globals():
                 monitor.monitoring_complete()
             else:
                 print("ERROR: monitor object not found")
             `);
-                            }
-                        } catch (error) {
-                            console.error("Python callback execution failed:", error);
-                            dashboard.showToast(`Callback failed: ${error.message}`, "error");
                         }
-                    }, 200); // 200ms delay to ensure proper execution
+                    } catch (error) {
+                        console.error("Python callback execution failed:", error);
+                        dashboard.showToast(`Callback failed: ${error.message}`, "error");
+                    }
                 };
             },
+
 
             
             finalizePhase(phaseId) {
@@ -1255,7 +1270,34 @@ print(f"Test started: {result}")
             this.commandCharacteristic = await service.getCharacteristic(this.EMG_COMMAND_CHARACTERISTIC_UUID);
 
             // Set up notification handler for data
-            this.emgCharacteristic.addEventListener('characteristicvaluechanged', this.handleNotifications.bind(this));
+            // In the connectDevice() function, replace the characteristic event listener:
+            this.emgCharacteristic.addEventListener('characteristicvaluechanged', (event) => {
+                // CRITICAL: Proper EMG data parsing for int16_t values
+                const dataView = event.target.value;
+                
+                // Parse as Int16Array (since your device sends int16_t values)
+                const values = new Int16Array(dataView.buffer, dataView.byteOffset, dataView.byteLength / 2);
+                
+                // Apply strict filtering to prevent corruption
+                for (let i = 0; i < values.length; i++) {
+                    const value = values[i];
+                    
+                    // Only accept reasonable EMG values for int16_t range
+                    if (typeof value === 'number' && 
+                        !isNaN(value) && 
+                        isFinite(value) && 
+                        Math.abs(value) < 100000) {  
+                        
+                        this.emgBuffer.push(value);
+                    }
+                }
+                
+                // Debug logging every 100 samples
+                if (this.emgBuffer.length % 100 === 0) {
+                    console.log(`EMG buffer: ${this.emgBuffer.length} samples, last value: ${this.emgBuffer[this.emgBuffer.length-1]}`);
+                }
+            });
+
 
             document.getElementById('start-test').disabled = false;
             this.showToast("Device connected successfully", "success");
