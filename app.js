@@ -228,27 +228,26 @@ monitor = ContinuousMonitor()
 monitor.start_monitoring()`
             },
 
-    {
-    name: 'fatigue_assessment.py',
-    size: '4.2 KB',
-    content: `import js
+            {
+                name: 'fatigue_assessment.py',
+                size: '5.1 KB',
+                content: `import js
 
-# Fatigue Assessment Protocol
+# Enhanced Fatigue Assessment Protocol
 class FatigueAssessment:
     def __init__(self):
         self.test_phases = ["baseline", "initial_mvc", "fatigue_induction", "recovery", "final_mvc"]
         self.current_phase_index = 0
         self.is_running = False
-        self.mvc_reference = 0
+        print("FatigueAssessment initialized")
         
     def run_test(self):
-        """Start the fatigue assessment protocol"""
-        js.displayInstructions("Starting Fatigue Assessment Protocol...")
+        print("=== STARTING FATIGUE ASSESSMENT PROTOCOL ===")
         self.is_running = True
         self.current_phase_index = 0
         
-        # Initialize session with all phases
-        js.EMGBridge.initialize_session({
+        # Initialize session
+        session_config = {
             "baseline": {
                 "name": "Baseline Rest", 
                 "duration": 10000,
@@ -274,15 +273,24 @@ class FatigueAssessment:
                 "duration": 5000,
                 "instruction": "Final maximum effort - give everything!"
             }
-        })
+        }
         
-        # Start first phase
+        js.EMGBridge.initialize_session(session_config)
+        print("Session initialized")
+        
+        # Start first phase immediately
         self.start_next_phase()
         return True
     
     def start_next_phase(self):
-        """Progress to next phase in protocol"""
+        print(f"=== START_NEXT_PHASE: Index={self.current_phase_index}, Running={self.is_running} ===")
+        
+        if not self.is_running:
+            print("Test not running, aborting")
+            return
+            
         if self.current_phase_index >= len(self.test_phases):
+            print("All phases completed, finishing test")
             self.complete_test()
             return
             
@@ -296,54 +304,64 @@ class FatigueAssessment:
         }
         
         instruction, duration = phase_info[phase_id]
+        
+        print(f"Starting phase {self.current_phase_index + 1}/5: {phase_id}")
         js.displayInstructions(f"Phase {self.current_phase_index + 1}/5: {instruction}")
         
         # Start the phase
         js.EMGBridge.start_phase(phase_id, duration)
         
-        # Schedule next phase transition
+        # Schedule callback for when phase completes
         js.EMGBridge.schedule_next_phase("phase_completed")
+        print(f"Phase {phase_id} started, callback scheduled")
     
     def phase_completed(self):
-        """Called when a phase completes"""
+        print(f"=== PHASE_COMPLETED: Index={self.current_phase_index}, Running={self.is_running} ===")
+        
         if not self.is_running:
+            print("Test not running, ignoring completion")
             return
             
         completed_phase = self.test_phases[self.current_phase_index]
+        print(f"Completed phase: {completed_phase}")
         
-        # Store MVC reference from initial contraction
-        if completed_phase == "initial_mvc":
-            # This will be calculated in JavaScript finalizePhase
-            js.displayInstructions("Initial MVC completed - reference established")
-        
+        # Move to next phase
         self.current_phase_index += 1
+        print(f"Incremented to phase index: {self.current_phase_index}")
         
-        # Brief pause between phases
+        # Schedule the next phase with a delay
+        print("Scheduling delayed start of next phase")
         js.EMGBridge.schedule_next_phase("start_next_phase_delayed")
         
     def start_next_phase_delayed(self):
-        """Start next phase after brief delay"""
+        print("=== START_NEXT_PHASE_DELAYED CALLED ===")
+        # Small delay then start next phase
+        import time
+        time.sleep(0.1)  # 100ms delay
         self.start_next_phase()
     
     def complete_test(self):
-        """Complete the fatigue assessment"""
-        js.displayInstructions("Fatigue Assessment Complete! Analyzing results...")
+        print("=== COMPLETING FATIGUE ASSESSMENT ===")
+        js.displayInstructions("Fatigue Assessment Complete!")
         js.EMGBridge.finalize_test()
         self.is_running = False
-        
-        # Calculate fatigue index (will be done in JavaScript)
-        js.displayInstructions("Protocol finished - fatigue metrics calculated")
+        print("Test completed successfully")
     
     def stop_test(self):
-        """Emergency stop"""
+        print("=== STOPPING TEST ===")
         self.is_running = False
         js.EMGBridge.stop_stream()
-        js.displayInstructions("Fatigue assessment stopped by user")
+        js.displayInstructions("Test stopped")
 
-# Initialize and run
+# Create and start test
+print("Creating FatigueAssessment instance...")
 test = FatigueAssessment()
-test.run_test()`
+print("Starting test...")
+result = test.run_test()
+print(f"Test started: {result}")
+`
 }
+
 
         ];
         
@@ -569,134 +587,134 @@ test.run_test()`
             schedule_next_phase: (callbackName) => {
                 console.log(`Scheduling callback: ${callbackName}`);
                 
-                // Store callback by name to avoid proxy issues
                 dashboard.phaseCompleteCallback = () => {
-                    console.log(`Executing callback: ${callbackName}`);
+                    console.log(`EXECUTING CALLBACK: ${callbackName}`);
                     
-                    // Call Python function by name through pyodide
-                    try {
-                        if (callbackName === "phase_completed") {
-                            // Check if test object exists and call phase_completed
-                            const result = dashboard.pyodide.runPython(`
-            try:
-                if 'test' in globals() and hasattr(test, 'phase_completed'):
-                    print(f"Calling test.phase_completed(), current phase: {test.current_phase_index}")
-                    test.phase_completed()
-                    print(f"phase_completed() executed, new phase index: {test.current_phase_index}")
-                else:
-                    print("ERROR: test object or phase_completed method not found")
-                    print("Available objects:", [name for name in globals().keys() if not name.startswith('_')])
-            except Exception as e:
-                print(f"Python callback error: {e}")
-                import traceback
-                traceback.print_exc()
+                    // Add a small delay to ensure phase data is fully processed
+                    setTimeout(() => {
+                        try {
+                            if (callbackName === "phase_completed") {
+                                console.log("Calling Python phase_completed method...");
+                                dashboard.pyodide.runPython(`
+            print("=== PYTHON CALLBACK: phase_completed ===")
+            if 'test' in globals() and hasattr(test, 'phase_completed'):
+                print(f"Before phase_completed: phase_index = {test.current_phase_index}")
+                test.phase_completed()
+                print(f"After phase_completed: phase_index = {test.current_phase_index}")
+                print("phase_completed executed successfully")
+            else:
+                print("ERROR: test object not found in globals")
+                print("Available variables:", list(globals().keys()))
             `);
-                        } else if (callbackName === "start_next_phase_delayed") {
-                            dashboard.pyodide.runPython(`
-            try:
-                if 'test' in globals() and hasattr(test, 'start_next_phase_delayed'):
-                    print("Calling test.start_next_phase_delayed()")
-                    test.start_next_phase_delayed()
-                    print("start_next_phase_delayed() executed")
-                else:
-                    print("ERROR: start_next_phase_delayed not found")
-            except Exception as e:
-                print(f"Python delayed callback error: {e}")
-                import traceback
-                traceback.print_exc()
+                            } else if (callbackName === "start_next_phase_delayed") {
+                                console.log("Calling Python start_next_phase_delayed method...");
+                                dashboard.pyodide.runPython(`
+            print("=== PYTHON CALLBACK: start_next_phase_delayed ===")
+            if 'test' in globals() and hasattr(test, 'start_next_phase_delayed'):
+                print("Calling start_next_phase_delayed...")
+                test.start_next_phase_delayed()
+                print("start_next_phase_delayed executed successfully")
+            else:
+                print("ERROR: start_next_phase_delayed method not found")
             `);
-                        } else if (callbackName === "monitoring_complete") {
-                            dashboard.pyodide.runPython(`
-            try:
-                if 'monitor' in globals():
-                    monitor.monitoring_complete()
-                else:
-                    print("ERROR: monitor object not found")
-            except Exception as e:
-                print(f"Monitor callback error: {e}")
+                            } else if (callbackName === "monitoring_complete") {
+                                dashboard.pyodide.runPython(`
+            if 'monitor' in globals():
+                monitor.monitoring_complete()
+            else:
+                print("ERROR: monitor object not found")
             `);
+                            }
+                        } catch (error) {
+                            console.error("Python callback execution failed:", error);
+                            dashboard.showToast(`Callback failed: ${error.message}`, "error");
                         }
-                    } catch (error) {
-                        console.error("Error calling Python callback:", error);
-                        dashboard.showToast(`Callback error: ${error.message}`, "error");
-                    }
+                    }, 200); // 200ms delay to ensure proper execution
                 };
             },
 
-
             
             finalizePhase(phaseId) {
-                console.log(`Finalizing phase: ${phaseId}`);
+                console.log(`=== FINALIZING PHASE: ${phaseId} ===`);
                 
                 if (!this.currentTestData[phaseId]) {
                     console.error(`Phase data not found for phaseId: ${phaseId}`);
-                    this.showToast(`Phase ${phaseId} data not found`, "error");
                     return;
                 }
                 
                 this.currentTestData[phaseId].endTime = Date.now();
                 
+                // Send stop command to device
+                if (this.commandCharacteristic) {
+                    try {
+                        const stopCommand = new TextEncoder().encode("stop");
+                        this.commandCharacteristic.writeValueWithoutResponse(stopCommand);
+                        console.log("Stop command sent to EMG device");
+                    } catch (error) {
+                        console.error("Failed to send stop command:", error);
+                    }
+                }
                 
-                
-                // Safe access to rawData with data cleaning
+                // Get raw data and apply strict filtering
                 const rawData = this.currentTestData[phaseId].rawData || [];
+                console.log(`Raw data collected: ${rawData.length} samples`);
                 
-                console.log(`Processing phase ${phaseId}: ${rawData.length} samples collected`);
-                
-                if (rawData && rawData.length > 0) {
-                    // Clean the data - remove invalid values
+                if (rawData.length > 0) {
+                    // CRITICAL: Apply very strict data filtering
                     const cleanData = rawData.filter(value => {
                         return typeof value === 'number' && 
                                !isNaN(value) && 
                                isFinite(value) && 
-                               Math.abs(value) < 1e6; // Remove extremely large values
+                               Math.abs(value) < 100 && // Limit to reasonable EMG values
+                               value !== 0; // Remove zero values which might be artifacts
                     });
                     
-                    console.log(`Cleaned data: ${cleanData.length} valid samples from ${rawData.length} total`);
+                    console.log(`Filtered data: ${cleanData.length} valid samples from ${rawData.length} total`);
                     
                     if (cleanData.length > 0) {
-                        // Calculate basic metrics with cleaned data
+                        // Calculate metrics with error checking
                         let sum = 0, absSum = 0, maxAmp = 0;
                         for (const value of cleanData) {
-                            sum += value;
-                            const absVal = Math.abs(value);
-                            absSum += absVal;
-                            if (absVal > maxAmp) maxAmp = absVal;
+                            if (isFinite(value)) {
+                                sum += value;
+                                const absVal = Math.abs(value);
+                                absSum += absVal;
+                                if (absVal > maxAmp) maxAmp = absVal;
+                            }
                         }
                         
-                        const mean = sum / cleanData.length;
-                        const mav = absSum / cleanData.length;
-                        const rms = Math.sqrt(cleanData.reduce((acc, val) => acc + val * val, 0) / cleanData.length);
+                        const mean = cleanData.length > 0 ? sum / cleanData.length : 0;
+                        const mav = cleanData.length > 0 ? absSum / cleanData.length : 0;
+                        const rms = cleanData.length > 0 ? 
+                            Math.sqrt(cleanData.reduce((acc, val) => acc + (val * val), 0) / cleanData.length) : 0;
                         
-                        // Store metrics
-                        this.currentTestData[phaseId].mean = mean;
-                        this.currentTestData[phaseId].mav = mav;
-                        this.currentTestData[phaseId].rms = rms;
-                        this.currentTestData[phaseId].maxAmplitude = maxAmp;
-                        this.currentTestData[phaseId].sampleCount = cleanData.length;
-                        this.currentTestData[phaseId].validSampleCount = cleanData.length;
-                        this.currentTestData[phaseId].totalSampleCount = rawData.length;
+                        // Validate calculated metrics
+                        const validatedMetrics = {
+                            mean: isFinite(mean) ? mean : 0,
+                            mav: isFinite(mav) ? mav : 0,
+                            rms: isFinite(rms) ? rms : 0,
+                            maxAmplitude: isFinite(maxAmp) ? maxAmp : 0,
+                            sampleCount: cleanData.length,
+                            validSampleCount: cleanData.length,
+                            totalSampleCount: rawData.length
+                        };
                         
-                        console.log(`Phase ${phaseId} metrics - RMS: ${rms.toFixed(3)}, MAV: ${mav.toFixed(3)}, Max: ${maxAmp.toFixed(2)}`);
+                        Object.assign(this.currentTestData[phaseId], validatedMetrics);
+                        
+                        console.log(`Phase ${phaseId} metrics:`, validatedMetrics);
                         
                     } else {
-                        console.warn(`No valid EMG data after cleaning for phase: ${phaseId}`);
-                        this.showToast(`Warning: No valid data for ${phaseId}`, "warning");
-                        
-                        // Set zero values instead of undefined
+                        console.warn(`No valid data after filtering for phase: ${phaseId}`);
                         const zeroMetrics = {
-                            mean: 0, mav: 0, rms: 0, maxAmplitude: 0, 
+                            mean: 0, mav: 0, rms: 0, maxAmplitude: 0,
                             sampleCount: 0, validSampleCount: 0, totalSampleCount: rawData.length
                         };
                         Object.assign(this.currentTestData[phaseId], zeroMetrics);
                     }
                 } else {
                     console.warn(`No EMG data collected for phase: ${phaseId}`);
-                    this.showToast(`Warning: No data collected for ${phaseId}`, "warning");
-                    
-                    // Set zero values
                     const zeroMetrics = {
-                        mean: 0, mav: 0, rms: 0, maxAmplitude: 0, 
+                        mean: 0, mav: 0, rms: 0, maxAmplitude: 0,
                         sampleCount: 0, validSampleCount: 0, totalSampleCount: 0
                     };
                     Object.assign(this.currentTestData[phaseId], zeroMetrics);
@@ -705,17 +723,16 @@ test.run_test()`
                 this.activeTestPhase = null;
                 this.updateProgress(100);
                 
-                // CRITICAL: Call the callback to proceed to next phase
-                console.log(`Phase ${phaseId} finalized, calling callback...`);
+                console.log(`Phase ${phaseId} finalized, executing callback...`);
+                
+                // Execute callback immediately
                 if (this.phaseCompleteCallback) {
-                    setTimeout(() => {
-                        console.log("Executing phase complete callback");
-                        this.phaseCompleteCallback();
-                    }, 500);
+                    this.phaseCompleteCallback();
                 } else {
-                    console.error("No phase complete callback set!");
+                    console.error("NO CALLBACK SET - THIS IS THE PROBLEM!");
                 }
             },
+
 
             
             finalize_test: () => {
