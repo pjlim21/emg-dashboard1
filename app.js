@@ -613,30 +613,50 @@ if 'monitor' in globals():
     }
 
     finalizePhase(phaseId) {
-        if (this.currentTestData[phaseId]) {
-            this.currentTestData[phaseId].endTime = Date.now();
-            
-            const rawData = this.currentTestData[phaseId].rawData;
-            if (rawData.length > 0) {
-                // Calculate basic metrics
-                let sum = 0, absSum = 0, maxAmp = 0;
-                for (const value of rawData) {
-                    sum += value;
-                    const absVal = Math.abs(value);
-                    absSum += absVal;
-                    if (absVal > maxAmp) maxAmp = absVal;
-                }
-                
-                const mean = sum / rawData.length;
-                const mav = absSum / rawData.length;
-                const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
-                
-                this.currentTestData[phaseId].mean = mean;
-                this.currentTestData[phaseId].mav = mav;
-                this.currentTestData[phaseId].rms = rms;
-                this.currentTestData[phaseId].maxAmplitude = maxAmp;
-                this.currentTestData[phaseId].sampleCount = rawData.length;
+        if (!this.currentTestData[phaseId]) {
+            console.error(`Phase data not found for phaseId: ${phaseId}`);
+            return;
+        }
+        
+        this.currentTestData[phaseId].endTime = Date.now();
+        
+        // Add safety check for rawData
+        const rawData = this.currentTestData[phaseId].rawData || [];
+        
+        if (rawData && rawData.length > 0) {
+            // Calculate basic metrics
+            let sum = 0, absSum = 0, maxAmp = 0;
+            for (const value of rawData) {
+                sum += value;
+                const absVal = Math.abs(value);
+                absSum += absVal;
+                if (absVal > maxAmp) maxAmp = absVal;
             }
+            
+            const mean = sum / rawData.length;
+            const mav = absSum / rawData.length;
+            const rms = Math.sqrt(rawData.reduce((acc, val) => acc + val * val, 0) / rawData.length);
+            
+            this.currentTestData[phaseId].mean = mean;
+            this.currentTestData[phaseId].mav = mav;
+            this.currentTestData[phaseId].rms = rms;
+            this.currentTestData[phaseId].maxAmplitude = maxAmp;
+            this.currentTestData[phaseId].sampleCount = rawData.length;
+        } else {
+            console.warn(`No EMG data collected for phase: ${phaseId}`);
+            // Set default values
+            this.currentTestData[phaseId].mean = 0;
+            this.currentTestData[phaseId].mav = 0;
+            this.currentTestData[phaseId].rms = 0;
+            this.currentTestData[phaseId].maxAmplitude = 0;
+            this.currentTestData[phaseId].sampleCount = 0;
+        }
+        
+        this.activeTestPhase = null;
+        this.updateProgress(100);
+        
+        if (this.phaseCompleteCallback) {
+            setTimeout(this.phaseCompleteCallback, 500);
         }
         // Add these calculations after the existing basic metrics (around line 280)
     if (rawData.length > 0) {
